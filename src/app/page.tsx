@@ -14,7 +14,7 @@ const AudioPlayer = dynamic(
 const FEEDBACK_COOKIE_NAME = 'book_feedback';
 
 // Add analytics helper
-const trackEvent = async (eventName: string, properties?: Record<string, any>) => {
+const trackEvent = async (eventName: string, properties?: Record<string, unknown>) => {
   try {
     await fetch('/api/analytics', {
       method: 'POST',

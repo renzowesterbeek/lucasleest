@@ -95,7 +95,7 @@ export async function createAnalyticsTable() {
     console.log('Table created successfully:', response);
     return response;
   } catch (error) {
-    if ((error as any).name === 'ResourceInUseException') {
+    if ((error as { name?: string }).name === 'ResourceInUseException') {
       console.log('Table already exists');
       return null;
     }

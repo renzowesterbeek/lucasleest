@@ -36,7 +36,9 @@ const AudioPlayer = ({ bookKey, title }: AudioPlayerProps) => {
     const initializeWebAudio = () => {
       if (!audioContextRef.current) {
         try {
-          audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+          // Safari support
+          const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+          audioContextRef.current = new AudioContext();
           analyserRef.current = audioContextRef.current.createAnalyser();
           analyserRef.current.fftSize = 4096;
           analyserRef.current.smoothingTimeConstant = 0.4;
