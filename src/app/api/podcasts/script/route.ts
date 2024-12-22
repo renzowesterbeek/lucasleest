@@ -36,6 +36,9 @@ const docClient = DynamoDBDocumentClient.from(dynamoClient, {
   },
 });
 
+// Use the same table name as the books endpoint
+const DYNAMODB_TABLE_NAME = 'LucasLeestBooks';
+
 interface ScriptRequest {
   title: string;
   author: string;
@@ -162,7 +165,7 @@ async function uploadToS3(content: string | null, folder: string, title: string,
 // Function to store podcast data in DynamoDB
 async function storePodcastData(data: Omit<PodcastData, 'updatedAt'>): Promise<void> {
   const command = new PutCommand({
-    TableName: process.env.DYNAMODB_TABLE_NAME,
+    TableName: DYNAMODB_TABLE_NAME,
     Item: {
       ...data,
       playCount: data.playCount || 0,
@@ -176,7 +179,7 @@ async function storePodcastData(data: Omit<PodcastData, 'updatedAt'>): Promise<v
 // Function to increment play count
 async function incrementPlayCount(podcastId: string): Promise<void> {
   const command = new UpdateCommand({
-    TableName: process.env.DYNAMODB_TABLE_NAME,
+    TableName: DYNAMODB_TABLE_NAME,
     Key: {
       id: podcastId
     },
@@ -195,28 +198,19 @@ async function incrementPlayCount(podcastId: string): Promise<void> {
 export async function GET() {
   try {
     // Log environment variables (without sensitive values)
-    console.log('Environment check:', {
+    const envCheck = {
       hasRegion: !!process.env.REGION,
       hasAccessKey: !!process.env.ACCESS_KEY_ID,
       hasSecretKey: !!process.env.SECRET_ACCESS_KEY,
-      hasTableName: !!process.env.DYNAMODB_TABLE_NAME,
       region: process.env.REGION || 'eu-west-1',
-      tableName: process.env.DYNAMODB_TABLE_NAME
-    });
-
-    if (!process.env.DYNAMODB_TABLE_NAME) {
-      console.error('DynamoDB table name not configured');
-      return NextResponse.json(
-        { error: 'Database configuration missing' },
-        { status: 500 }
-      );
-    }
+    };
+    console.log('Environment check:', envCheck);
 
     const command = new ScanCommand({
-      TableName: process.env.DYNAMODB_TABLE_NAME,
+      TableName: DYNAMODB_TABLE_NAME,
     });
 
-    console.log('Attempting to scan DynamoDB table:', process.env.DYNAMODB_TABLE_NAME);
+    console.log('Attempting to scan DynamoDB table:', DYNAMODB_TABLE_NAME);
 
     try {
       const response = await docClient.send(command);
@@ -260,9 +254,6 @@ export async function POST(request: Request) {
     if (!process.env.ANTHROPIC_API_KEY) {
       throw new Error('Anthropic API key not configured');
     }
-    if (!process.env.DYNAMODB_TABLE_NAME) {
-      throw new Error('DynamoDB table name not configured');
-    }
     if (!process.env.S3_BUCKET_NAME) {
       throw new Error('S3 bucket name not configured');
     }
@@ -275,7 +266,7 @@ export async function POST(request: Request) {
     if (script && id) {
       // Get the current podcast data to preserve play count
       const getCommand = new ScanCommand({
-        TableName: process.env.DYNAMODB_TABLE_NAME,
+        TableName: DYNAMODB_TABLE_NAME,
         FilterExpression: 'id = :id',
         ExpressionAttributeValues: {
           ':id': id

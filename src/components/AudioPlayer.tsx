@@ -7,8 +7,15 @@ interface AudioPlayerProps {
   title: string;
 }
 
+const BARS_COUNT = 192;
+
 const AudioPlayer = ({ bookKey, title }: AudioPlayerProps) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const animationRef = useRef<number>();
+  
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -16,15 +23,35 @@ const AudioPlayer = ({ bookKey, title }: AudioPlayerProps) => {
   const [isLoading, setIsLoading] = useState(true);
   const [progress, setProgress] = useState(0);
   const [isDurationLoaded, setIsDurationLoaded] = useState(false);
+  const [audioData, setAudioData] = useState<number[]>(Array(BARS_COUNT).fill(50));
 
   // Initialize audio element and set up all event listeners
   useEffect(() => {
-    let isActive = true; // For cleanup
+    let isActive = true;
     const audio = new Audio();
     audioRef.current = audio;
     audio.preload = 'metadata';
 
-    // Set up playback event listeners
+    // Initialize Web Audio API
+    const initializeWebAudio = () => {
+      if (!audioContextRef.current) {
+        try {
+          audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+          analyserRef.current = audioContextRef.current.createAnalyser();
+          analyserRef.current.fftSize = 4096;
+          analyserRef.current.smoothingTimeConstant = 0.4;
+          analyserRef.current.minDecibels = -85;
+          analyserRef.current.maxDecibels = -25;
+
+          sourceRef.current = audioContextRef.current.createMediaElementSource(audio);
+          sourceRef.current.connect(analyserRef.current);
+          analyserRef.current.connect(audioContextRef.current.destination);
+        } catch (err) {
+          console.error('Failed to initialize Web Audio API:', err);
+        }
+      }
+    };
+
     const updateTime = () => {
       const current = audio.currentTime;
       const total = audio.duration;
@@ -41,16 +68,21 @@ const AudioPlayer = ({ bookKey, title }: AudioPlayerProps) => {
       setProgress(100);
     };
 
-    // Add playback event listeners
+    const handleCanPlay = () => {
+      if (!audioContextRef.current) {
+        initializeWebAudio();
+      }
+    };
+
     audio.addEventListener('timeupdate', updateTime);
     audio.addEventListener('ended', handleEnded);
+    audio.addEventListener('canplay', handleCanPlay);
 
     async function initializeAudio() {
       try {
         setIsLoading(true);
         setIsDurationLoaded(false);
         
-        // Get signed URL
         const response = await fetch(`/api/get-signed-url?key=${encodeURIComponent(bookKey)}`);
         const data = await response.json();
         
@@ -58,12 +90,12 @@ const AudioPlayer = ({ bookKey, title }: AudioPlayerProps) => {
           throw new Error(data.error || 'Failed to get audio URL');
         }
 
-        if (!isActive) return; // Don't proceed if component is unmounted
+        if (!isActive) return;
 
-        // Set the audio source
+        // Set crossOrigin before setting src
+        audio.crossOrigin = 'anonymous';
         audio.src = data.url;
 
-        // Try to get duration immediately
         const checkDuration = () => {
           if (!isNaN(audio.duration) && audio.duration > 0) {
             setDuration(audio.duration);
@@ -74,9 +106,7 @@ const AudioPlayer = ({ bookKey, title }: AudioPlayerProps) => {
           return false;
         };
 
-        // Check duration immediately
         if (!checkDuration()) {
-          // If not available immediately, set up event listeners
           const loadHandler = () => {
             if (checkDuration()) {
               cleanup();
@@ -111,32 +141,104 @@ const AudioPlayer = ({ bookKey, title }: AudioPlayerProps) => {
 
     initializeAudio();
 
-    // Cleanup function
     return () => {
       isActive = false;
       if (audioRef.current) {
         audioRef.current.removeEventListener('timeupdate', updateTime);
         audioRef.current.removeEventListener('ended', handleEnded);
+        audioRef.current.removeEventListener('canplay', handleCanPlay);
         audioRef.current.pause();
         audioRef.current.src = '';
         audioRef.current = null;
       }
+      if (sourceRef.current) {
+        sourceRef.current.disconnect();
+      }
+      if (analyserRef.current) {
+        analyserRef.current.disconnect();
+      }
+      if (audioContextRef.current) {
+        audioContextRef.current.close();
+        audioContextRef.current = null;
+      }
     };
-  }, [bookKey]); // Only re-run when bookKey changes
+  }, [bookKey]);
 
-  const togglePlayPause = () => {
+  // Audio visualization effect
+  useEffect(() => {
+    if (!analyserRef.current) return;
+
+    const bufferLength = analyserRef.current.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    const barWidth = Math.floor(bufferLength / BARS_COUNT);
+
+    const updateBars = () => {
+      if (!analyserRef.current) return;
+
+      analyserRef.current.getByteFrequencyData(dataArray);
+      
+      // Calculate average values for each bar with enhanced dynamics
+      const newData = Array(BARS_COUNT).fill(0);
+      for (let i = 0; i < BARS_COUNT; i++) {
+        let sum = 0;
+        const startIndex = i * barWidth;
+        
+        // Weight frequencies differently based on their position
+        for (let j = 0; j < barWidth; j++) {
+          const value = dataArray[startIndex + j];
+          // Apply frequency-dependent scaling
+          const scale = 1 + (j / barWidth) * 0.5; // Higher frequencies get boosted
+          sum += value * scale;
+        }
+        
+        // Convert to percentage with enhanced dynamics
+        const average = sum / barWidth;
+        // Apply non-linear scaling for more dramatic effect
+        const normalized = Math.pow(average / 255, 1.5) * 100;
+        newData[i] = Math.max(normalized, 3);
+      }
+      
+      setAudioData(prev => {
+        return newData.map((value, i) => {
+          // Responsive smoothing based on value change
+          const change = Math.abs(value - (prev[i] || 0));
+          const smoothingFactor = isPlaying 
+            ? Math.max(0.2, Math.min(0.8, 1 - change / 100)) // Less smoothing for bigger changes
+            : 0.8;
+          return value * (1 - smoothingFactor) + (prev[i] || 0) * smoothingFactor;
+        });
+      });
+      
+      animationRef.current = requestAnimationFrame(updateBars);
+    };
+
+    updateBars();
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, [isPlaying]);
+
+  const togglePlayPause = async () => {
     const audio = audioRef.current;
     if (!audio || !isDurationLoaded) return;
 
-    if (isPlaying) {
-      audio.pause();
-    } else {
-      audio.play().catch((error) => {
-        console.error('Playback error:', error);
-        setError('Error playing audio. Please try again.');
-      });
+    try {
+      if (audioContextRef.current?.state === 'suspended') {
+        await audioContextRef.current.resume();
+      }
+
+      if (isPlaying) {
+        audio.pause();
+      } else {
+        await audio.play();
+      }
+      setIsPlaying(!isPlaying);
+    } catch (error) {
+      console.error('Playback error:', error);
+      setError('Error playing audio. Please try again.');
     }
-    setIsPlaying(!isPlaying);
   };
 
   const formatTime = (time: number) => {
@@ -186,10 +288,10 @@ const AudioPlayer = ({ bookKey, title }: AudioPlayerProps) => {
         <button
           onClick={togglePlayPause}
           disabled={!isDurationLoaded}
-          className={`flex-shrink-0 w-10 h-10 flex items-center justify-center text-white rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+          className={`flex-shrink-0 w-10 h-10 flex items-center justify-center text-white rounded-full focus:outline-none ${
             !isDurationLoaded
-              ? 'bg-blue-400 cursor-not-allowed'
-              : 'bg-blue-600 hover:bg-blue-700'
+              ? 'bg-primary/60 cursor-not-allowed'
+              : 'bg-primary hover:bg-primary-hover'
           }`}
           aria-label={isPlaying ? 'Pauzeren' : 'Afspelen'}
         >
@@ -205,22 +307,53 @@ const AudioPlayer = ({ bookKey, title }: AudioPlayerProps) => {
         </button>
 
         <div className="flex-grow">
-          <h2 className="text-sm font-medium text-gray-900 mb-1">{title}</h2>
+          <h2 className="text-sm font-medium text-primary-text-color mb-1">{title}</h2>
           <div className="flex items-center gap-2">
-            <div className="flex-grow relative">
+            <div className="flex-grow relative h-12">
+              {/* Audio visualization bars */}
+              <div className="absolute inset-0 flex items-center justify-between pointer-events-none">
+                {audioData.map((height, index) => {
+                  const barProgress = (index / (BARS_COUNT - 1)) * 100;
+                  const isBeforeProgress = barProgress <= progress;
+                  
+                  // Calculate distance from current progress with a smaller window
+                  const distanceFromProgress = Math.abs(barProgress - progress);
+                  const isNearProgress = distanceFromProgress < 8;
+                  
+                  // More dramatic height scaling with audio reactivity
+                  const heightMultiplier = isNearProgress 
+                    ? Math.pow(Math.cos((distanceFromProgress / 8) * (Math.PI / 2)), 1.5) // Less aggressive falloff
+                    : 0.15;
+                  
+                  // Enhanced scaling for active bars
+                  const scaledHeight = height * (isNearProgress ? 2 : 1); // Double the height for active bars
+                  
+                  return (
+                    <div
+                      key={index}
+                      className={`w-[1px] transition-all duration-50 rounded-full ${
+                        isBeforeProgress ? 'bg-primary' : 'bg-background-muted'
+                      }`}
+                      style={{
+                        height: `${Math.max(scaledHeight * heightMultiplier, 8)}%`,
+                        opacity: isPlaying ? 1 : 0.7,
+                        transform: `scaleY(${isPlaying ? 1 : 0.7})`,
+                      }}
+                    />
+                  );
+                })}
+              </div>
+              {/* Progress bar */}
               <input
                 type="range"
                 min="0"
                 max={duration || 0}
                 value={currentTime}
                 onChange={handleSeek}
-                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                style={{
-                  background: `linear-gradient(to right, #2563eb ${progress}%, #e5e7eb ${progress}%)`
-                }}
+                className="w-full h-full opacity-0 cursor-pointer relative z-10"
               />
             </div>
-            <div className="flex-shrink-0 text-xs text-gray-500 min-w-[80px] text-right">
+            <div className="flex-shrink-0 text-xs text-primary-text-color/60 min-w-[80px] text-right">
               {formatTime(currentTime)} / {formatTime(duration)}
             </div>
           </div>

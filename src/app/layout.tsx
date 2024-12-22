@@ -5,7 +5,7 @@ import Link from 'next/link'
 
 const lato = Lato({
   subsets: ['latin'],
-  weight: ['400', '700'],
+  weight: ['300', '400', '700'],
   display: 'swap',
 })
 
@@ -27,7 +27,10 @@ export default function RootLayout({
             <div className="flex h-16 items-center justify-between">
               <div className="flex-shrink-0">
                 <Link href="/" className="hover:text-[#cc7c5e] transition-colors">
-                  <h1 className="text-xl font-medium text-[#cc7c5e]">Uit de boekenkast van Meester Lucas</h1>
+                  <div className="flex flex-col leading-tight">
+                    <span className="text-sm font-light tracking-wide text-[#cc7c5e]">Uit de boekenkast van</span>
+                    <span className="text-xl font-bold tracking-wide text-[#cc7c5e]">meester Lucas</span>
+                  </div>
                 </Link>
               </div>
               <div className="flex items-center">

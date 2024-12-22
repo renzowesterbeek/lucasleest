@@ -26,35 +26,30 @@ interface Podcast {
 
 const FeedbackBar = ({ positive = 0, negative = 0 }: { positive: number; negative: number }) => {
   const total = positive + negative;
-  const positivePercentage = total > 0 ? (positive / total) * 100 : 0;
-  const hasNoFeedback = total === 0;
+  const positivePercentage = total > 0 ? Math.round((positive / total) * 100) : 50;
 
   return (
     <div className="flex items-center gap-2">
       <div className="flex-grow h-2 rounded-full overflow-hidden bg-[#dad5dd]">
-        {hasNoFeedback ? (
-          <div className="h-full w-full bg-[#dad5dd]" />
-        ) : (
-          <div className="h-full flex">
-            <div 
-              className="h-full bg-green-500 transition-all duration-300"
-              style={{ width: `${positivePercentage}%` }}
-            />
-            <div 
-              className="h-full bg-red-500 transition-all duration-300"
-              style={{ width: `${100 - positivePercentage}%` }}
-            />
-          </div>
-        )}
+        <div className="h-full flex">
+          <div 
+            className="h-full bg-green-500 transition-all duration-300"
+            style={{ width: `${positivePercentage}%` }}
+          />
+          <div 
+            className="h-full bg-red-500 transition-all duration-300"
+            style={{ width: `${100 - positivePercentage}%` }}
+          />
+        </div>
       </div>
       <div className="flex gap-3 text-sm font-medium min-w-[80px] justify-end">
-        <span className={`flex items-center gap-1 ${hasNoFeedback ? 'text-[#dad5dd]' : 'text-green-600'}`}>
+        <span className="flex items-center gap-1 text-green-600">
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
           </svg>
           {positive}
         </span>
-        <span className={`flex items-center gap-1 ${hasNoFeedback ? 'text-[#dad5dd]' : 'text-red-600'}`}>
+        <span className="flex items-center gap-1 text-red-600">
           <svg className="w-4 h-4 rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
           </svg>
@@ -96,7 +91,7 @@ export default function PodcastAdminPage() {
 
       const formData = new FormData(e.currentTarget);
       
-      const podcastData = {
+      const bookData = {
         title: formData.get('title') as string,
         author: formData.get('author') as string,
         libraryLink: formData.get('libraryLink') as string || undefined,
@@ -104,7 +99,11 @@ export default function PodcastAdminPage() {
       };
 
       // First upload the cover image
-      const uploadUrlResponse = await fetch('/api/get-upload-url?filename=' + encodeURIComponent(coverFile.name) + '&type=cover');
+      const params = new URLSearchParams({
+        filename: coverFile.name,
+        type: 'cover'
+      });
+      const uploadUrlResponse = await fetch(`/api/get-upload-url?${params.toString()}`);
       if (!uploadUrlResponse.ok) {
         const error = await uploadUrlResponse.json();
         throw new Error(error.error || 'Failed to get upload URL');
@@ -121,14 +120,14 @@ export default function PodcastAdminPage() {
         },
       });
 
-      // Now create the podcast script
-      const response = await fetch('/api/podcasts/script', {
+      // Now create the book with script
+      const response = await fetch('/api/books', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          ...podcastData,
+          ...bookData,
           coverImage: coverKey,
         }),
       });
@@ -136,15 +135,18 @@ export default function PodcastAdminPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to create podcast');
+        throw new Error(data.error || 'Failed to create book');
       }
 
       setGeneratedScript(data.script);
-      setCurrentPodcastId(data.id);
+      setCurrentPodcastId(data.book.id);
       setSuccessMessage('Script succesvol gegenereerd!');
+      
+      // Refresh the list of books
+      fetchPodcasts();
     } catch (error) {
       console.error('Upload error:', error);
-      setError(error instanceof Error ? error.message : 'Failed to create podcast');
+      setError(error instanceof Error ? error.message : 'Failed to create book');
     } finally {
       setIsLoading(false);
     }
@@ -169,7 +171,7 @@ export default function PodcastAdminPage() {
 
   const handleGenerateAudio = async () => {
     if (!currentPodcastId) {
-      setError('No podcast ID available');
+      setError('No book ID available');
       return;
     }
     
@@ -178,23 +180,25 @@ export default function PodcastAdminPage() {
     setSuccessMessage(null);
 
     try {
-      const response = await fetch('/api/podcasts/audio', {
+      const response = await fetch(`/api/books/${currentPodcastId}/audio`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          id: currentPodcastId,
-          title: title,
           script: editedScript || generatedScript
         }),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to start audio generation');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to start audio generation');
       }
 
       setSuccessMessage('Audio generatie is gestart op de achtergrond. Dit kan enkele minuten duren.');
+      
+      // Refresh the list of books after a delay to show the updated audio status
+      setTimeout(fetchPodcasts, 5000);
     } catch (error) {
       console.error('Audio generation error:', error);
       setError(error instanceof Error ? error.message : 'Failed to start audio generation');
@@ -205,7 +209,7 @@ export default function PodcastAdminPage() {
 
   const fetchPodcasts = async () => {
     try {
-      const response = await fetch('/api/podcasts/script', {
+      const response = await fetch('/api/books', {
         headers: {
           'Cache-Control': 'no-cache',
         }
@@ -218,16 +222,33 @@ export default function PodcastAdminPage() {
       
       const data = await response.json();
       
-      if (!data.success || !Array.isArray(data.podcasts)) {
+      if (!Array.isArray(data.books)) {
         throw new Error('Invalid response format');
       }
 
-      const processedPodcasts = data.podcasts.map((podcast: Podcast) => ({
-        ...podcast,
-        playCount: podcast.playCount ?? 0,
-        positiveFeedback: podcast.positiveFeedback ?? 0,
-        negativeFeedback: podcast.negativeFeedback ?? 0,
-      }));
+      console.log('Raw books data:', data.books);
+
+      const processedPodcasts = data.books.map((book) => {
+        console.log('Processing book:', book);
+        // Log the raw values before processing
+        console.log('Raw values:', {
+          playCount: book.playCount,
+          positiveFeedback: book.positiveFeedback,
+          negativeFeedback: book.negativeFeedback
+        });
+
+        return {
+          id: book.id,
+          title: book.title,
+          author: book.author,
+          audioLink: book.audioLink,
+          playCount: Number(book.playCount) || 0,
+          positiveFeedback: Number(book.positiveFeedback) || 0,
+          negativeFeedback: Number(book.negativeFeedback) || 0
+        };
+      });
+
+      console.log('Processed podcasts:', processedPodcasts);
 
       setPodcasts(processedPodcasts);
     } catch (error) {
@@ -246,17 +267,17 @@ export default function PodcastAdminPage() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto p-6 bg-[#edece4] rounded-lg shadow">
-      <h1 className="text-2xl font-semibold mb-6 text-[#cc7c5e]">Nieuwe Podcast Creëren</h1>
+    <div className="max-w-2xl mx-auto p-6 bg-background-DEFAULT rounded-lg shadow">
+      <h1 className="text-2xl font-semibold mb-6 text-primary">Nieuwe Podcast Creëren</h1>
 
       {error && (
-        <div className="p-4 mb-6 rounded-md bg-red-50 text-red-900 border border-red-200">
+        <div className="p-4 mb-6 rounded-md bg-error-light text-error border border-error/20">
           {error}
         </div>
       )}
 
       {successMessage && (
-        <div className="p-4 mb-6 rounded-md bg-[#f2f0e9] text-[#cc7c5e] border border-[#cc7c5e]/20">
+        <div className="p-4 mb-6 rounded-md bg-primary-light text-primary border border-primary/20">
           {successMessage}
         </div>
       )}
@@ -360,8 +381,8 @@ export default function PodcastAdminPage() {
           disabled={isLoading}
           className={`w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
             isLoading
-              ? 'bg-[#cc7c5e]/60 cursor-not-allowed'
-              : 'bg-[#cc7c5e] hover:bg-[#b56a50] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#cc7c5e]'
+              ? 'bg-primary/60 cursor-not-allowed'
+              : 'bg-primary hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary'
           }`}
         >
           {isLoading ? 'Script Genereren...' : 'Podcast Genereren'}
@@ -369,16 +390,16 @@ export default function PodcastAdminPage() {
       </form>
 
       {generatedScript && (
-        <div className="mt-8 p-6 bg-[#f2f0e9] rounded-lg border border-[#dad5dd]">
+        <div className="mt-8 p-6 bg-primary-light rounded-lg border border-background-muted">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-medium text-[#cc7c5e]">Script</h2>
+            <h2 className="text-lg font-medium text-primary">Script</h2>
             <button
               onClick={handleGenerateAudio}
               disabled={isGeneratingAudio}
               className={`inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
                 isGeneratingAudio
-                  ? 'bg-[#cc7c5e]/60 cursor-not-allowed'
-                  : 'bg-[#cc7c5e] hover:bg-[#b56a50] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#cc7c5e]'
+                  ? 'bg-primary/60 cursor-not-allowed'
+                  : 'bg-primary hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary'
               }`}
             >
               {isGeneratingAudio ? 'Audio Genereren...' : 'Genereer Audio'}
@@ -388,7 +409,7 @@ export default function PodcastAdminPage() {
             <textarea
               value={editedScript !== null ? editedScript : generatedScript}
               onChange={(e) => setEditedScript(e.target.value)}
-              className="w-full h-96 font-mono text-sm text-[#cc7c5e] p-4 rounded-md border border-[#dad5dd] focus:border-[#cc7c5e] focus:ring-1 focus:ring-[#cc7c5e] bg-white"
+              className="w-full h-96 font-mono text-sm text-primary p-4 rounded-md border border-background-muted focus:border-primary focus:ring-1 focus:ring-primary bg-background-paper"
               placeholder="Script text..."
             />
           </div>
@@ -406,19 +427,19 @@ export default function PodcastAdminPage() {
 
       {podcasts.length > 0 && (
         <div className="mt-8">
-          <h2 className="text-xl font-semibold mb-4 text-[#cc7c5e]">Bestaande Podcasts</h2>
+          <h2 className="text-xl font-semibold mb-4 text-primary">Bestaande Podcasts</h2>
           <ul className="space-y-2">
             {podcasts.map((podcast) => (
               <li 
                 key={podcast.id} 
-                className="flex flex-col gap-2 p-4 hover:bg-[#f2f0e9] rounded-lg cursor-pointer border border-[#dad5dd] bg-white"
+                className="flex flex-col gap-2 p-4 hover:bg-primary-light rounded-lg cursor-pointer border border-background-muted bg-background-paper"
                 onClick={() => handlePodcastPlay(podcast)}
               >
                 <div className="flex justify-between items-center">
-                  <span className="text-[#cc7c5e] hover:text-[#b56a50] transition-colors">
+                  <span className="text-primary hover:text-primary-hover transition-colors">
                     {podcast.title}
                   </span>
-                  <span className="text-sm text-[#897dc9]">
+                  <span className="text-sm text-secondary">
                     {podcast.playCount || 0} keer afgespeeld
                   </span>
                 </div>

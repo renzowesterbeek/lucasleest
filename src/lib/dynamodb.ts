@@ -118,6 +118,9 @@ export async function getAllBooks(): Promise<Book[]> {
       coverImage: item.coverImage,
       libraryLink: item.libraryLink,
       createdAt: item.createdAt,
+      playCount: item.playCount || 0,
+      positiveFeedback: item.positiveFeedback || 0,
+      negativeFeedback: item.negativeFeedback || 0
     }));
   } catch (error) {
     console.error('Detailed error in getAllBooks:', {

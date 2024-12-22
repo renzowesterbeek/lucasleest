@@ -9,8 +9,29 @@ export default {
   theme: {
     extend: {
       colors: {
-        background: "var(--background)",
-        foreground: "var(--foreground)",
+        'primary-text-color': '#000000',
+        primary: {
+          DEFAULT: '#cc7c5e',
+          hover: '#b56a50',
+          light: '#f2f0e9',
+        },
+        secondary: {
+          DEFAULT: '#897dc9',
+          hover: '#7668b8',
+        },
+        background: {
+          DEFAULT: '#edece4',
+          paper: '#ffffff',
+          muted: '#dad5dd',
+        },
+        success: {
+          DEFAULT: '#22c55e', // green-500
+          light: '#dcfce7', // green-100
+        },
+        error: {
+          DEFAULT: '#ef4444', // red-500
+          light: '#fee2e2', // red-100
+        },
       },
       keyframes: {
         'fade-in': {

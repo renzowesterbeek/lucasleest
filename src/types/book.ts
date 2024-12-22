@@ -8,6 +8,9 @@ export interface Book {
   libraryLink?: string;
   coverImage?: string;
   createdAt: string;
+  playCount?: number;
+  positiveFeedback?: number;
+  negativeFeedback?: number;
 }
 
 export interface BookInput {
