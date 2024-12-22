@@ -194,24 +194,61 @@ async function incrementPlayCount(podcastId: string): Promise<void> {
 
 export async function GET() {
   try {
+    // Log environment variables (without sensitive values)
+    console.log('Environment check:', {
+      hasRegion: !!process.env.REGION,
+      hasAccessKey: !!process.env.ACCESS_KEY_ID,
+      hasSecretKey: !!process.env.SECRET_ACCESS_KEY,
+      hasTableName: !!process.env.DYNAMODB_TABLE_NAME,
+      region: process.env.REGION || 'eu-west-1',
+      tableName: process.env.DYNAMODB_TABLE_NAME
+    });
+
     if (!process.env.DYNAMODB_TABLE_NAME) {
-      throw new Error('DynamoDB table name not configured');
+      console.error('DynamoDB table name not configured');
+      return NextResponse.json(
+        { error: 'Database configuration missing' },
+        { status: 500 }
+      );
     }
 
     const command = new ScanCommand({
       TableName: process.env.DYNAMODB_TABLE_NAME,
     });
 
-    const response = await docClient.send(command);
-    
-    return NextResponse.json({
-      success: true,
-      podcasts: response.Items || []
-    });
+    console.log('Attempting to scan DynamoDB table:', process.env.DYNAMODB_TABLE_NAME);
+
+    try {
+      const response = await docClient.send(command);
+      console.log('DynamoDB scan successful, found items:', response.Items?.length || 0);
+      
+      return NextResponse.json({
+        success: true,
+        podcasts: response.Items || []
+      });
+    } catch (dbError) {
+      console.error('DynamoDB scan error:', {
+        error: dbError,
+        message: dbError instanceof Error ? dbError.message : 'Unknown error',
+        name: dbError instanceof Error ? dbError.name : 'Unknown error type',
+        stack: dbError instanceof Error ? dbError.stack : undefined
+      });
+      
+      return NextResponse.json(
+        { error: 'Database operation failed', details: dbError instanceof Error ? dbError.message : 'Unknown error' },
+        { status: 500 }
+      );
+    }
   } catch (error) {
-    console.error('Error fetching podcasts:', error);
+    console.error('Error in GET route:', {
+      error,
+      message: error instanceof Error ? error.message : 'Unknown error',
+      name: error instanceof Error ? error.name : 'Unknown error type',
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    
     return NextResponse.json(
-      { error: 'Failed to fetch podcasts' },
+      { error: 'Failed to fetch podcasts', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
     );
   }
