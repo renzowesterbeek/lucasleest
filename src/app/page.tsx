@@ -11,6 +11,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [coverUrls, setCoverUrls] = useState<Record<string, string>>({});
+  const [descriptions, setDescriptions] = useState<Record<string, string>>({});
 
   useEffect(() => {
     async function fetchBooks() {
@@ -23,6 +24,28 @@ export default function Home() {
         }
 
         setBooks(data.books);
+
+        // Fetch descriptions for books that have a description file path
+        const descriptionTexts: Record<string, string> = {};
+        await Promise.all(
+          data.books
+            .filter((book: Book) => book.description?.endsWith('.txt'))
+            .map(async (book: Book) => {
+              try {
+                const response = await fetch(`/api/get-signed-url?key=${encodeURIComponent(book.description!)}`);
+                const data = await response.json();
+                if (response.ok) {
+                  // Fetch the actual content from the signed URL
+                  const textResponse = await fetch(data.url);
+                  const text = await textResponse.text();
+                  descriptionTexts[book.id] = text;
+                }
+              } catch (err) {
+                console.error('Error fetching description:', err);
+              }
+            })
+        );
+        setDescriptions(descriptionTexts);
 
         // Fetch signed URLs for all cover images
         const urls: Record<string, string> = {};
@@ -110,7 +133,9 @@ export default function Home() {
             <div className="min-w-0 flex-1">
               <h3 className="text-sm font-medium text-gray-900">{book.title}</h3>
               <p className="text-sm text-gray-600">{book.author}</p>
-              <p className="text-sm text-gray-500 line-clamp-2">{book.description}</p>
+              <p className="text-sm text-gray-500 line-clamp-2">
+                {descriptions[book.id] || book.description}
+              </p>
             </div>
             {book.libraryLink && (
               <a
