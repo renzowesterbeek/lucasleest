@@ -124,10 +124,6 @@ async function arrayBufferToAudioBuffer(arrayBuffer: ArrayBuffer): Promise<Audio
   const audioContext = getAudioContext();
   return await audioContext.decodeAudioData(arrayBuffer);
 }
-interface AudioGenerationResponse {
-  request_id?: string;
-  audio: ArrayBuffer;
-}
 // Function to update DynamoDB with audio link
 async function updatePodcastAudioLink(id: string, audioKey: string): Promise<void> {
   const command = new UpdateCommand({
