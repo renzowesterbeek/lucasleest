@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
 import { FileUpload } from '@/components/FileUpload';
 import dynamic from 'next/dynamic';
 
@@ -13,19 +12,6 @@ const AudioPlayer = dynamic(
 
 interface Review {
   text: string;
-}
-
-async function fetchDescriptionText(url: string): Promise<string> {
-  try {
-    const response = await fetch(`https://${process.env.NEXT_PUBLIC_S3_BUCKET_NAME}.s3.${process.env.NEXT_PUBLIC_REGION}.amazonaws.com/${url}`);
-    if (!response.ok) {
-      throw new Error('Failed to fetch description');
-    }
-    return await response.text();
-  } catch (error) {
-    console.error('Error fetching description:', error);
-    return '';
-  }
 }
 
 interface Podcast {
@@ -83,12 +69,9 @@ export default function PodcastAdminPage() {
   const [title, setTitle] = useState('');
   const [author, setAuthor] = useState('');
   const [libraryLink, setLibraryLink] = useState('');
-  const [coverImage, setCoverImage] = useState('');
   const [reviews, setReviews] = useState<Review[]>([{ text: '' }]);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [description, setDescription] = useState<string>('');
   const [podcasts, setPodcasts] = useState<Podcast[]>([]);
   const [selectedBook, setSelectedBook] = useState<Podcast | null>(null);
   const [generatedScript, setGeneratedScript] = useState<string | null>(null);
@@ -98,7 +81,6 @@ export default function PodcastAdminPage() {
   const [coverFile, setCoverFile] = useState<File>();
   const [currentPodcastId, setCurrentPodcastId] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
-  const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -221,7 +203,6 @@ export default function PodcastAdminPage() {
     }
   };
 
-  // Simplified fetch podcasts function
   const fetchPodcasts = async () => {
     try {
       const response = await fetch('/api/podcasts/script');
@@ -234,7 +215,6 @@ export default function PodcastAdminPage() {
         throw new Error(data.error || 'Failed to fetch podcasts');
       }
 
-      // Ensure all podcasts have the required fields with defaults
       const processedPodcasts = data.podcasts.map((podcast: Podcast) => ({
         ...podcast,
         playCount: podcast.playCount || 0,
@@ -254,7 +234,6 @@ export default function PodcastAdminPage() {
   }, []);
 
   const handlePodcastPlay = async (podcast: Podcast) => {
-    // Reset audio player by clearing and re-setting the book
     setSelectedBook(null);
     setTimeout(() => setSelectedBook(podcast), 0);
   };
