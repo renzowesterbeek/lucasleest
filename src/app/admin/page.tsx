@@ -205,27 +205,34 @@ export default function PodcastAdminPage() {
 
   const fetchPodcasts = async () => {
     try {
-      const response = await fetch('/api/podcasts/script');
+      const response = await fetch('/api/podcasts/script', {
+        headers: {
+          'Cache-Control': 'no-cache',
+        }
+      });
+      
       if (!response.ok) {
-        throw new Error('Failed to fetch podcasts');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
       }
+      
       const data = await response.json();
       
-      if (!data.success) {
-        throw new Error(data.error || 'Failed to fetch podcasts');
+      if (!data.success || !Array.isArray(data.podcasts)) {
+        throw new Error('Invalid response format');
       }
 
       const processedPodcasts = data.podcasts.map((podcast: Podcast) => ({
         ...podcast,
-        playCount: podcast.playCount || 0,
-        positiveFeedback: podcast.positiveFeedback || 0,
-        negativeFeedback: podcast.negativeFeedback || 0,
+        playCount: podcast.playCount ?? 0,
+        positiveFeedback: podcast.positiveFeedback ?? 0,
+        negativeFeedback: podcast.negativeFeedback ?? 0,
       }));
 
       setPodcasts(processedPodcasts);
     } catch (error) {
-      console.error('Error:', error);
-      setError('Failed to fetch podcasts');
+      console.error('Failed to fetch podcasts:', error);
+      setError(error instanceof Error ? error.message : 'Failed to fetch podcasts');
     }
   };
 
