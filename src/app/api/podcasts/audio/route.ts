@@ -2,8 +2,6 @@ import { NextResponse } from 'next/server';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
-import { AudioContext, AudioBuffer } from 'node-web-audio-api';
-import toWav from 'audiobuffer-to-wav';
 
 // Initialize DynamoDB client
 const dynamoClient = new DynamoDBClient({
@@ -68,62 +66,6 @@ function extractDialogLines(script: string): Array<{ speaker: string; text: stri
   return dialogLines;
 }
 
-// Create a single AudioContext for the entire process
-let globalAudioContext: AudioContext | null = null;
-
-function getAudioContext(): AudioContext {
-  if (!globalAudioContext) {
-    globalAudioContext = new AudioContext();
-  }
-  return globalAudioContext;
-}
-
-async function closeAudioContext() {
-  if (globalAudioContext) {
-    await globalAudioContext.close();
-    globalAudioContext = null;
-  }
-}
-
-// Function to combine audio buffers with silence between segments
-async function combineAudioBuffers(audioBuffers: AudioBuffer[], silenceDuration: number = 0.5): Promise<AudioBuffer> {
-  const audioContext = getAudioContext();
-  
-  // Calculate total duration including silence between segments
-  const totalDuration = audioBuffers.reduce((acc, buffer) => {
-    return acc + buffer.duration + silenceDuration;
-  }, 0);
-
-  // Create a new buffer for the combined audio
-  const combinedBuffer = new AudioBuffer({
-    numberOfChannels: 2,
-    length: Math.ceil(audioContext.sampleRate * totalDuration),
-    sampleRate: audioContext.sampleRate
-  });
-
-  // Fill the channels
-  for (let channel = 0; channel < 2; channel++) {
-    const outputData = combinedBuffer.getChannelData(channel);
-    let currentOffset = 0;
-    
-    for (const buffer of audioBuffers) {
-      // Copy audio data
-      const inputData = buffer.getChannelData(Math.min(channel, buffer.numberOfChannels - 1));
-      outputData.set(inputData, currentOffset);
-      
-      // Move offset past this segment and the silence gap
-      currentOffset += buffer.length + Math.ceil(audioContext.sampleRate * silenceDuration);
-    }
-  }
-
-  return combinedBuffer;
-}
-
-// Function to convert audio data to AudioBuffer
-async function arrayBufferToAudioBuffer(arrayBuffer: ArrayBuffer): Promise<AudioBuffer> {
-  const audioContext = getAudioContext();
-  return await audioContext.decodeAudioData(arrayBuffer);
-}
 // Function to update DynamoDB with audio link
 async function updatePodcastAudioLink(id: string, audioKey: string): Promise<void> {
   const command = new UpdateCommand({
@@ -151,11 +93,11 @@ async function generateAudioInBackground(id: string, title: string, script: stri
     const dialogLines = extractDialogLines(script);
     
     // Generate audio for each line
-    const audioBuffers: AudioBuffer[] = [];
+    const audioSegments: Buffer[] = [];
     let retryCount = 0;
     const maxRetries = 3;
     
-    // Track request IDs per speaker
+    // Track request IDs per speaker for smoother speech
     const speakerRequestIds: { [speaker: string]: string[] } = {};
     
     for (const { speaker, text } of dialogLines) {
@@ -208,10 +150,9 @@ async function generateAudioInBackground(id: string, title: string, script: stri
             speakerRequestIds[speaker].push(requestId);
           }
 
-          // Get the audio data directly as ArrayBuffer
+          // Get the audio data as a buffer
           const arrayBuffer = await response.arrayBuffer();
-          const audioBuffer = await arrayBufferToAudioBuffer(arrayBuffer);
-          audioBuffers.push(audioBuffer);
+          audioSegments.push(Buffer.from(arrayBuffer));
           success = true;
           
           console.log(`Successfully generated audio for line: "${text.substring(0, 50)}..."`);
@@ -237,15 +178,12 @@ async function generateAudioInBackground(id: string, title: string, script: stri
       await new Promise(resolve => setTimeout(resolve, 250));
     }
 
-    if (audioBuffers.length === 0) {
+    if (audioSegments.length === 0) {
       throw new Error('No audio segments were generated successfully');
     }
 
-    // Combine all audio buffers with silence between them
-    const combinedBuffer = await combineAudioBuffers(audioBuffers);
-
-    // Convert to WAV format
-    const wavData = toWav(combinedBuffer);
+    // Concatenate all audio segments
+    const combinedAudio = Buffer.concat(audioSegments);
 
     // Upload to S3 with retries
     let uploadSuccess = false;
@@ -256,14 +194,14 @@ async function generateAudioInBackground(id: string, title: string, script: stri
       try {
         // Generate filename with timestamp
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const filename = `audio_${title}_${timestamp}.wav`;
+        const filename = `audio_${title}_${timestamp}.mp3`;
         audioKey = `audio/${filename}`;
 
         const uploadCommand = new PutObjectCommand({
           Bucket: process.env.S3_BUCKET_NAME || '',
           Key: audioKey,
-          Body: Buffer.from(wavData),
-          ContentType: 'audio/wav'
+          Body: combinedAudio,
+          ContentType: 'audio/mpeg'
         });
 
         await s3Client.send(uploadCommand);
@@ -288,9 +226,6 @@ async function generateAudioInBackground(id: string, title: string, script: stri
   } catch (error) {
     console.error('Error in audio generation:', error);
     throw error;
-  } finally {
-    // Clean up audio context
-    await closeAudioContext();
   }
 }
 
