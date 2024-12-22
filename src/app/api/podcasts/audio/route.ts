@@ -1,19 +1,17 @@
 import { NextResponse } from 'next/server';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import fs from 'fs';
-import path from 'path';
+import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { AudioContext, AudioBuffer } from 'node-web-audio-api';
 import toWav from 'audiobuffer-to-wav';
-import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
-import { useState } from 'react';
 
 // Initialize DynamoDB client
 const dynamoClient = new DynamoDBClient({
-  region: process.env.REGION || 'eu-west-1',
+  region: process.env.NEXT_PUBLIC_REGION || 'eu-west-1',
   credentials: {
-    accessKeyId: process.env.ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.SECRET_ACCESS_KEY || '',
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID || '',
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
   },
 });
 
@@ -25,10 +23,10 @@ const docClient = DynamoDBDocumentClient.from(dynamoClient, {
 
 // Initialize S3 client
 const s3Client = new S3Client({
-  region: process.env.REGION || 'eu-west-1',
+  region: process.env.NEXT_PUBLIC_REGION!,
   credentials: {
-    accessKeyId: process.env.ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.SECRET_ACCESS_KEY || '',
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
   },
 });
 

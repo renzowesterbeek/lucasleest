@@ -7,7 +7,7 @@ interface AudioPlayerProps {
   title: string;
 }
 
-export function AudioPlayer({ bookKey, title }: AudioPlayerProps) {
+const AudioPlayer = ({ bookKey, title }: AudioPlayerProps) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -181,41 +181,53 @@ export function AudioPlayer({ bookKey, title }: AudioPlayerProps) {
   }
 
   return (
-    <div className="w-full max-w-md mx-auto bg-white rounded-lg shadow-lg p-6">
-      <h2 className="text-lg font-semibold mb-4 text-gray-900">{title}</h2>
-      
-      <div className="space-y-4">
-        <div className="flex items-center justify-between text-sm text-gray-500">
-          <span>{formatTime(currentTime)}</span>
-          <span>{formatTime(duration)}</span>
-        </div>
-        
-        <div className="relative pt-1">
-          <input
-            type="range"
-            min="0"
-            max={duration || 0}
-            value={currentTime}
-            onChange={handleSeek}
-            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-            style={{
-              background: `linear-gradient(to right, #2563eb ${progress}%, #e5e7eb ${progress}%)`
-            }}
-          />
-        </div>
-        
+    <div className="w-full bg-white px-4 py-3">
+      <div className="flex items-center gap-4">
         <button
           onClick={togglePlayPause}
           disabled={!isDurationLoaded}
-          className={`w-full py-2 px-4 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+          className={`flex-shrink-0 w-10 h-10 flex items-center justify-center text-white rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
             !isDurationLoaded
               ? 'bg-blue-400 cursor-not-allowed'
               : 'bg-blue-600 hover:bg-blue-700'
           }`}
+          aria-label={isPlaying ? 'Pauzeren' : 'Afspelen'}
         >
-          {isPlaying ? 'Pauzeren' : 'Afspelen'}
+          {isPlaying ? (
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25v13.5m-7.5-13.5v13.5" />
+            </svg>
+          ) : (
+            <svg className="h-5 w-5 ml-0.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347c-.75.412-1.667-.13-1.667-.986V5.653Z" />
+            </svg>
+          )}
         </button>
+
+        <div className="flex-grow">
+          <h2 className="text-sm font-medium text-gray-900 mb-1">{title}</h2>
+          <div className="flex items-center gap-2">
+            <div className="flex-grow relative">
+              <input
+                type="range"
+                min="0"
+                max={duration || 0}
+                value={currentTime}
+                onChange={handleSeek}
+                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                style={{
+                  background: `linear-gradient(to right, #2563eb ${progress}%, #e5e7eb ${progress}%)`
+                }}
+              />
+            </div>
+            <div className="flex-shrink-0 text-xs text-gray-500 min-w-[80px] text-right">
+              {formatTime(currentTime)} / {formatTime(duration)}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
-} 
+}
+
+export default AudioPlayer; 

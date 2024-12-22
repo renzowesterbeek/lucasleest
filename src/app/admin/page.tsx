@@ -1,167 +1,287 @@
 'use client';
 
-import { useState, useRef } from 'react';
-import { BookInput } from '@/types/book';
+import { useState, useRef, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { FileUpload } from '@/components/FileUpload';
+import dynamic from 'next/dynamic';
 
-export default function AdminPage() {
-  const [isUploading, setIsUploading] = useState(false);
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [uploadProgress, setUploadProgress] = useState({ audio: 0, transcript: 0, cover: 0 });
-  const [audioFile, setAudioFile] = useState<File>();
-  const [transcriptFile, setTranscriptFile] = useState<File>();
-  const [coverFile, setCoverFile] = useState<File>();
-  const formRef = useRef<HTMLFormElement>(null);
+// Dynamically import AudioPlayer with no SSR
+const AudioPlayer = dynamic(
+  () => import('@/components/AudioPlayer').then((mod) => mod.default),
+  { ssr: false }
+);
 
-  const uploadFile = async (file: File, type: 'audio' | 'transcript' | 'cover'): Promise<string> => {
-    // Get pre-signed URL
-    const uploadUrlResponse = await fetch('/api/get-upload-url?filename=' + encodeURIComponent(file.name) + '&type=' + type);
-    if (!uploadUrlResponse.ok) {
-      const error = await uploadUrlResponse.json();
-      throw new Error(error.error || 'Failed to get upload URL');
+interface Review {
+  text: string;
+}
+
+async function fetchDescriptionText(url: string): Promise<string> {
+  try {
+    const response = await fetch(`https://${process.env.NEXT_PUBLIC_S3_BUCKET_NAME}.s3.${process.env.NEXT_PUBLIC_REGION}.amazonaws.com/${url}`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch description');
     }
-    
-    const { url: uploadUrl, key } = await uploadUrlResponse.json();
+    return await response.text();
+  } catch (error) {
+    console.error('Error fetching description:', error);
+    return '';
+  }
+}
 
-    // Upload the file with progress tracking
-    await new Promise<void>((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open('PUT', uploadUrl);
-      
-      // Set the correct content type based on file type
-      let contentType = file.type; // Use the file's native content type if available
-      if (!contentType) {
-        // Fallback content types if not available from the file
-        switch (type) {
-          case 'audio':
-            contentType = 'audio/mpeg';
-            break;
-          case 'transcript':
-            contentType = 'text/plain';
-            break;
-          case 'cover':
-            contentType = 'image/jpeg'; // Default to JPEG if no type available
-            break;
-        }
-      }
-      xhr.setRequestHeader('Content-Type', contentType);
+interface Podcast {
+  id: string;
+  title: string;
+  author: string;
+  audioLink: string;
+  playCount: number;
+  positiveFeedback: number;
+  negativeFeedback: number;
+}
 
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) {
-          const percentComplete = (event.loaded / event.total) * 100;
-          setUploadProgress(prev => ({
-            ...prev,
-            [type]: percentComplete
-          }));
-        }
-      };
+const FeedbackBar = ({ positive = 0, negative = 0 }: { positive: number; negative: number }) => {
+  const total = positive + negative;
+  const positivePercentage = total > 0 ? (positive / total) * 100 : 0;
 
-      xhr.onload = () => {
-        if (xhr.status === 200) {
-          resolve();
-        } else {
-          reject(new Error(`Upload failed for ${type} file`));
-        }
-      };
-      xhr.onerror = () => reject(new Error(`Upload failed for ${type} file`));
-      xhr.send(file);
-    });
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex-grow h-2 rounded-full overflow-hidden bg-gray-200">
+        <div className="h-full flex">
+          <div 
+            className="h-full bg-green-500 transition-all duration-300"
+            style={{ width: `${positivePercentage}%` }}
+          />
+          <div 
+            className="h-full bg-red-500 transition-all duration-300"
+            style={{ width: `${100 - positivePercentage}%` }}
+          />
+        </div>
+      </div>
+      <div className="flex gap-3 text-sm font-medium min-w-[80px] justify-end">
+        <span className="text-green-600 flex items-center gap-1">
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
+          </svg>
+          {positive}
+        </span>
+        <span className="text-red-600 flex items-center gap-1">
+          <svg className="w-4 h-4 rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
+          </svg>
+          {negative}
+        </span>
+      </div>
+    </div>
+  );
+};
 
-    return key;
-  };
+export default function PodcastAdminPage() {
+  const [title, setTitle] = useState('');
+  const [author, setAuthor] = useState('');
+  const [libraryLink, setLibraryLink] = useState('');
+  const [coverImage, setCoverImage] = useState('');
+  const [reviews, setReviews] = useState<Review[]>([{ text: '' }]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [description, setDescription] = useState<string>('');
+  const [podcasts, setPodcasts] = useState<Podcast[]>([]);
+  const [selectedBook, setSelectedBook] = useState<Podcast | null>(null);
+  const [generatedScript, setGeneratedScript] = useState<string | null>(null);
+  const [editedScript, setEditedScript] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
+  const [coverFile, setCoverFile] = useState<File>();
+  const [currentPodcastId, setCurrentPodcastId] = useState<string | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    setIsUploading(true);
-    setMessage(null);
-    setUploadProgress({ audio: 0, transcript: 0, cover: 0 });
+    setError(null);
+    setSuccessMessage(null);
+    setGeneratedScript(null);
+    setIsLoading(true);
 
     try {
-      const formData = new FormData(e.currentTarget);
-      
-      if (!audioFile) {
-        throw new Error('Please select an audio file');
-      }
-      if (!transcriptFile) {
-        throw new Error('Please select a transcript file');
-      }
       if (!coverFile) {
         throw new Error('Please select a cover image');
       }
 
-      setMessage({ type: 'success', text: 'Uploading files...' });
-
-      // Upload all files
-      const [audioKey, transcriptKey, coverKey] = await Promise.all([
-        uploadFile(audioFile, 'audio'),
-        uploadFile(transcriptFile, 'transcript'),
-        uploadFile(coverFile, 'cover')
-      ]);
-
-      setMessage({ type: 'success', text: 'Files uploaded, creating book record...' });
-
-      // Create the book record in DynamoDB
-      const bookData: BookInput = {
+      const formData = new FormData(e.currentTarget);
+      
+      const podcastData = {
         title: formData.get('title') as string,
         author: formData.get('author') as string,
-        description: formData.get('description') as string,
-        audioLink: audioKey,
-        audioTranscript: transcriptKey,
-        coverImage: coverKey,
         libraryLink: formData.get('libraryLink') as string || undefined,
+        reviews: reviews.filter(review => review.text.trim() !== '').map(review => review.text),
       };
 
-      const response = await fetch('/api/books', {
+      // First upload the cover image
+      const uploadUrlResponse = await fetch('/api/get-upload-url?filename=' + encodeURIComponent(coverFile.name) + '&type=cover');
+      if (!uploadUrlResponse.ok) {
+        const error = await uploadUrlResponse.json();
+        throw new Error(error.error || 'Failed to get upload URL');
+      }
+      
+      const { url: uploadUrl, key: coverKey } = await uploadUrlResponse.json();
+
+      // Upload the cover file
+      await fetch(uploadUrl, {
+        method: 'PUT',
+        body: coverFile,
+        headers: {
+          'Content-Type': coverFile.type,
+        },
+      });
+
+      // Now create the podcast script
+      const response = await fetch('/api/podcasts/script', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(bookData),
+        body: JSON.stringify({
+          ...podcastData,
+          coverImage: coverKey,
+        }),
       });
+
+      const data = await response.json();
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Failed to create book record');
+        throw new Error(data.error || 'Failed to create podcast');
       }
 
-      setMessage({ type: 'success', text: 'Book uploaded successfully!' });
-      formRef.current?.reset();
-      setUploadProgress({ audio: 0, transcript: 0, cover: 0 });
-      setAudioFile(undefined);
-      setTranscriptFile(undefined);
-      setCoverFile(undefined);
+      setGeneratedScript(data.script);
+      setCurrentPodcastId(data.id);
+      setSuccessMessage('Script succesvol gegenereerd!');
     } catch (error) {
       console.error('Upload error:', error);
-      setMessage({ 
-        type: 'error', 
-        text: error instanceof Error ? error.message : 'Failed to upload book' 
-      });
+      setError(error instanceof Error ? error.message : 'Failed to create podcast');
     } finally {
-      setIsUploading(false);
+      setIsLoading(false);
     }
   };
 
-  const totalProgress = (uploadProgress.audio + uploadProgress.transcript + uploadProgress.cover) / 3;
+  const addReview = () => {
+    setReviews([...reviews, { text: '' }]);
+  };
+
+  const updateReview = (index: number, text: string) => {
+    const newReviews = [...reviews];
+    newReviews[index] = { text };
+    setReviews(newReviews);
+  };
+
+  const removeReview = (index: number) => {
+    if (reviews.length > 1) {
+      const newReviews = reviews.filter((_, i) => i !== index);
+      setReviews(newReviews);
+    }
+  };
+
+  const handleGenerateAudio = async () => {
+    if (!currentPodcastId) {
+      setError('No podcast ID available');
+      return;
+    }
+    
+    setIsGeneratingAudio(true);
+    setError(null);
+    setSuccessMessage(null);
+
+    try {
+      const response = await fetch('/api/podcasts/audio', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          id: currentPodcastId,
+          title: title,
+          script: editedScript || generatedScript
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to start audio generation');
+      }
+
+      setSuccessMessage('Audio generatie is gestart op de achtergrond. Dit kan enkele minuten duren.');
+    } catch (error) {
+      console.error('Audio generation error:', error);
+      setError(error instanceof Error ? error.message : 'Failed to start audio generation');
+    } finally {
+      setIsGeneratingAudio(false);
+    }
+  };
+
+  // Simplified fetch podcasts function
+  const fetchPodcasts = async () => {
+    try {
+      const response = await fetch('/api/podcasts/script');
+      if (!response.ok) {
+        throw new Error('Failed to fetch podcasts');
+      }
+      const data = await response.json();
+      
+      if (!data.success) {
+        throw new Error(data.error || 'Failed to fetch podcasts');
+      }
+
+      // Ensure all podcasts have the required fields with defaults
+      const processedPodcasts = data.podcasts.map((podcast: any) => ({
+        ...podcast,
+        playCount: podcast.playCount || 0,
+        positiveFeedback: podcast.positiveFeedback || 0,
+        negativeFeedback: podcast.negativeFeedback || 0,
+      }));
+
+      setPodcasts(processedPodcasts);
+    } catch (error) {
+      console.error('Error:', error);
+      setError('Failed to fetch podcasts');
+    }
+  };
+
+  useEffect(() => {
+    fetchPodcasts();
+  }, []);
+
+  const handlePodcastPlay = async (podcast: Podcast) => {
+    // Reset audio player by clearing and re-setting the book
+    setSelectedBook(null);
+    setTimeout(() => setSelectedBook(podcast), 0);
+
+    // Increment play count
+    try {
+      await fetch('/api/podcasts/script', {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ id: podcast.id }),
+      });
+      // Refresh the podcast list to get updated play counts
+      fetchPodcasts();
+    } catch (error) {
+      console.error('Error updating play count:', error);
+    }
+  };
 
   return (
     <div className="max-w-2xl mx-auto p-6 bg-white rounded-lg shadow">
-      <h1 className="text-2xl font-semibold mb-6 text-indigo-600">Nieuw Boek Toevoegen</h1>
+      <h1 className="text-2xl font-semibold mb-6 text-indigo-600">Nieuwe Podcast Creëren</h1>
 
-      {message && (
-        <div className={`p-4 mb-6 rounded-md ${
-          message.type === 'success' 
-            ? 'bg-green-100 text-green-900 border border-green-200' 
-            : 'bg-red-100 text-red-900 border border-red-200'
-        }`}>
-          {message.type === 'success' 
-            ? message.text.replace('Book uploaded successfully!', 'Boek succesvol geüpload!')
-              .replace('Uploading files...', 'Bestanden uploaden...')
-              .replace('Files uploaded, creating book record...', 'Bestanden geüpload, boekgegevens worden opgeslagen...')
-            : message.text.replace('Failed to upload book', 'Uploaden van boek mislukt')
-              .replace('Please select an audio file', 'Selecteer een audiobestand')
-              .replace('Please select a transcript file', 'Selecteer een transcriptbestand')
-              .replace('Please select a cover image', 'Selecteer een omslagafbeelding')
-          }
+      {error && (
+        <div className="p-4 mb-6 rounded-md bg-red-100 text-red-900 border border-red-200">
+          {error}
+        </div>
+      )}
+
+      {successMessage && (
+        <div className="p-4 mb-6 rounded-md bg-green-100 text-green-900 border border-green-200">
+          {successMessage}
         </div>
       )}
 
@@ -177,6 +297,8 @@ export default function AdminPage() {
             required
             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 bg-white text-gray-900 px-4 py-3"
             placeholder="Voer de titel in"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
           />
         </div>
 
@@ -191,38 +313,10 @@ export default function AdminPage() {
             required
             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 bg-white text-gray-900 px-4 py-3"
             placeholder="Voer de auteur in"
+            value={author}
+            onChange={(e) => setAuthor(e.target.value)}
           />
         </div>
-
-        <div>
-          <label htmlFor="description" className="block text-sm font-medium text-gray-900">
-            Beschrijving
-          </label>
-          <textarea
-            name="description"
-            id="description"
-            required
-            rows={3}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 bg-white text-gray-900 px-4 py-3"
-            placeholder="Voer een beschrijving in"
-          />
-        </div>
-
-        <FileUpload
-          accept="audio/mpeg"
-          label="Audiobestand (MP3)"
-          helpText="Alleen MP3-bestanden zijn toegestaan"
-          onChange={setAudioFile}
-          value={audioFile}
-        />
-
-        <FileUpload
-          accept="text/plain"
-          label="Transcriptbestand (TXT)"
-          helpText="Alleen tekstbestanden zijn toegestaan"
-          onChange={setTranscriptFile}
-          value={transcriptFile}
-        />
 
         <FileUpload
           accept="image/*"
@@ -242,93 +336,125 @@ export default function AdminPage() {
             id="libraryLink"
             className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 bg-white text-gray-900 px-4 py-3"
             placeholder="https://..."
+            value={libraryLink}
+            onChange={(e) => setLibraryLink(e.target.value)}
           />
         </div>
 
-        {(uploadProgress.audio > 0 || uploadProgress.transcript > 0 || uploadProgress.cover > 0) && (
-          <div className="space-y-4 bg-gray-50 p-4 rounded-lg border border-gray-200">
-            <div className="relative pt-1">
-              <div className="flex mb-2 items-center justify-between">
-                <span className="text-sm font-medium text-gray-900">
-                  Voortgang Audio Upload
-                </span>
-                <span className="text-sm font-medium text-gray-900">
-                  {Math.round(uploadProgress.audio)}%
-                </span>
-              </div>
-              <div className="overflow-hidden h-2 text-xs flex rounded bg-gray-200">
-                <div
-                  style={{ width: `${uploadProgress.audio}%` }}
-                  className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-indigo-500 transition-all duration-300"
-                />
-              </div>
-            </div>
-
-            <div className="relative pt-1">
-              <div className="flex mb-2 items-center justify-between">
-                <span className="text-sm font-medium text-gray-900">
-                  Voortgang Transcript Upload
-                </span>
-                <span className="text-sm font-medium text-gray-900">
-                  {Math.round(uploadProgress.transcript)}%
-                </span>
-              </div>
-              <div className="overflow-hidden h-2 text-xs flex rounded bg-gray-200">
-                <div
-                  style={{ width: `${uploadProgress.transcript}%` }}
-                  className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-indigo-500 transition-all duration-300"
-                />
-              </div>
-            </div>
-
-            <div className="relative pt-1">
-              <div className="flex mb-2 items-center justify-between">
-                <span className="text-sm font-medium text-gray-900">
-                  Voortgang Omslag Upload
-                </span>
-                <span className="text-sm font-medium text-gray-900">
-                  {Math.round(uploadProgress.cover)}%
-                </span>
-              </div>
-              <div className="overflow-hidden h-2 text-xs flex rounded bg-gray-200">
-                <div
-                  style={{ width: `${uploadProgress.cover}%` }}
-                  className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-indigo-500 transition-all duration-300"
-                />
-              </div>
-            </div>
-
-            <div className="relative pt-1">
-              <div className="flex mb-2 items-center justify-between">
-                <span className="text-sm font-medium text-gray-900">
-                  Totale Voortgang
-                </span>
-                <span className="text-sm font-medium text-gray-900">
-                  {Math.round(totalProgress)}%
-                </span>
-              </div>
-              <div className="overflow-hidden h-2 text-xs flex rounded bg-gray-200">
-                <div
-                  style={{ width: `${totalProgress}%` }}
-                  className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-indigo-600 transition-all duration-300"
-                />
-              </div>
-            </div>
+        <div className="space-y-4">
+          <div className="flex justify-between items-center">
+            <label className="block text-sm font-medium text-gray-900">
+              Recensies
+            </label>
+            <button
+              type="button"
+              onClick={addReview}
+              className="inline-flex items-center px-3 py-1 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+            >
+              Recensie Toevoegen
+            </button>
           </div>
-        )}
+          
+          {reviews.map((review, index) => (
+            <div key={index} className="relative">
+              <textarea
+                value={review.text}
+                onChange={(e) => updateReview(index, e.target.value)}
+                rows={3}
+                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 bg-white text-gray-900 px-4 py-3"
+                placeholder="Voer de review tekst in"
+              />
+              {reviews.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeReview(index)}
+                  className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"
+                >
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
 
         <button
           type="submit"
-          disabled={isUploading}
+          disabled={isLoading}
           className={`w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
-            isUploading
+            isLoading
               ? 'bg-indigo-400 cursor-not-allowed'
               : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500'
           }`}
         >
-          {isUploading ? 'Bezig met uploaden...' : 'Boek Uploaden'}
+          {isLoading ? 'Script Genereren...' : 'Podcast Genereren'}
         </button>
       </form>
+
+      {generatedScript && (
+        <div className="mt-8 p-6 bg-gray-50 rounded-lg border border-gray-200">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-medium text-gray-900">Script</h2>
+            <button
+              onClick={handleGenerateAudio}
+              disabled={isGeneratingAudio}
+              className={`inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
+                isGeneratingAudio
+                  ? 'bg-indigo-400 cursor-not-allowed'
+                  : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500'
+              }`}
+            >
+              {isGeneratingAudio ? 'Audio Genereren...' : 'Genereer Audio'}
+            </button>
+          </div>
+          <div className="prose prose-indigo max-w-none">
+            <textarea
+              value={editedScript !== null ? editedScript : generatedScript}
+              onChange={(e) => setEditedScript(e.target.value)}
+              className="w-full h-96 font-mono text-sm text-gray-800 p-4 rounded-md border border-gray-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              placeholder="Script text..."
+            />
+          </div>
+        </div>
+      )}
+
+      {selectedBook && (
+        <div className="mb-8">
+          <AudioPlayer
+            bookKey={selectedBook.audioLink}
+            title={selectedBook.title}
+          />
+        </div>
+      )}
+
+      {podcasts.length > 0 && (
+        <div className="mt-8">
+          <h2 className="text-xl font-semibold mb-4">Bestaande Podcasts</h2>
+          <ul className="space-y-2">
+            {podcasts.map((podcast) => (
+              <li 
+                key={podcast.id} 
+                className="flex flex-col gap-2 p-4 hover:bg-gray-50 rounded-lg cursor-pointer"
+                onClick={() => handlePodcastPlay(podcast)}
+              >
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-700 hover:text-indigo-600">
+                    {podcast.title}
+                  </span>
+                  <span className="text-sm text-gray-500">
+                    {podcast.playCount || 0} keer afgespeeld
+                  </span>
+                </div>
+                <FeedbackBar 
+                  positive={podcast.positiveFeedback || 0} 
+                  negative={podcast.negativeFeedback || 0} 
+                />
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
-} 
+}
