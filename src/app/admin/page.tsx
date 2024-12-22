@@ -41,29 +41,34 @@ interface Podcast {
 const FeedbackBar = ({ positive = 0, negative = 0 }: { positive: number; negative: number }) => {
   const total = positive + negative;
   const positivePercentage = total > 0 ? (positive / total) * 100 : 0;
+  const hasNoFeedback = total === 0;
 
   return (
     <div className="flex items-center gap-2">
-      <div className="flex-grow h-2 rounded-full overflow-hidden bg-gray-200">
-        <div className="h-full flex">
-          <div 
-            className="h-full bg-green-500 transition-all duration-300"
-            style={{ width: `${positivePercentage}%` }}
-          />
-          <div 
-            className="h-full bg-red-500 transition-all duration-300"
-            style={{ width: `${100 - positivePercentage}%` }}
-          />
-        </div>
+      <div className="flex-grow h-2 rounded-full overflow-hidden bg-[#dad5dd]">
+        {hasNoFeedback ? (
+          <div className="h-full w-full bg-[#dad5dd]" />
+        ) : (
+          <div className="h-full flex">
+            <div 
+              className="h-full bg-green-500 transition-all duration-300"
+              style={{ width: `${positivePercentage}%` }}
+            />
+            <div 
+              className="h-full bg-red-500 transition-all duration-300"
+              style={{ width: `${100 - positivePercentage}%` }}
+            />
+          </div>
+        )}
       </div>
       <div className="flex gap-3 text-sm font-medium min-w-[80px] justify-end">
-        <span className="text-green-600 flex items-center gap-1">
+        <span className={`flex items-center gap-1 ${hasNoFeedback ? 'text-[#dad5dd]' : 'text-green-600'}`}>
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
           </svg>
           {positive}
         </span>
-        <span className="text-red-600 flex items-center gap-1">
+        <span className={`flex items-center gap-1 ${hasNoFeedback ? 'text-[#dad5dd]' : 'text-red-600'}`}>
           <svg className="w-4 h-4 rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
           </svg>
@@ -252,35 +257,20 @@ export default function PodcastAdminPage() {
     // Reset audio player by clearing and re-setting the book
     setSelectedBook(null);
     setTimeout(() => setSelectedBook(podcast), 0);
-
-    // Increment play count
-    try {
-      await fetch('/api/podcasts/script', {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ id: podcast.id }),
-      });
-      // Refresh the podcast list to get updated play counts
-      fetchPodcasts();
-    } catch (error) {
-      console.error('Error updating play count:', error);
-    }
   };
 
   return (
-    <div className="max-w-2xl mx-auto p-6 bg-white rounded-lg shadow">
-      <h1 className="text-2xl font-semibold mb-6 text-indigo-600">Nieuwe Podcast Creëren</h1>
+    <div className="max-w-2xl mx-auto p-6 bg-[#edece4] rounded-lg shadow">
+      <h1 className="text-2xl font-semibold mb-6 text-[#cc7c5e]">Nieuwe Podcast Creëren</h1>
 
       {error && (
-        <div className="p-4 mb-6 rounded-md bg-red-100 text-red-900 border border-red-200">
+        <div className="p-4 mb-6 rounded-md bg-red-50 text-red-900 border border-red-200">
           {error}
         </div>
       )}
 
       {successMessage && (
-        <div className="p-4 mb-6 rounded-md bg-green-100 text-green-900 border border-green-200">
+        <div className="p-4 mb-6 rounded-md bg-[#f2f0e9] text-[#cc7c5e] border border-[#cc7c5e]/20">
           {successMessage}
         </div>
       )}
@@ -384,8 +374,8 @@ export default function PodcastAdminPage() {
           disabled={isLoading}
           className={`w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
             isLoading
-              ? 'bg-indigo-400 cursor-not-allowed'
-              : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500'
+              ? 'bg-[#cc7c5e]/60 cursor-not-allowed'
+              : 'bg-[#cc7c5e] hover:bg-[#b56a50] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#cc7c5e]'
           }`}
         >
           {isLoading ? 'Script Genereren...' : 'Podcast Genereren'}
@@ -393,26 +383,26 @@ export default function PodcastAdminPage() {
       </form>
 
       {generatedScript && (
-        <div className="mt-8 p-6 bg-gray-50 rounded-lg border border-gray-200">
+        <div className="mt-8 p-6 bg-[#f2f0e9] rounded-lg border border-[#dad5dd]">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-medium text-gray-900">Script</h2>
+            <h2 className="text-lg font-medium text-[#cc7c5e]">Script</h2>
             <button
               onClick={handleGenerateAudio}
               disabled={isGeneratingAudio}
               className={`inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
                 isGeneratingAudio
-                  ? 'bg-indigo-400 cursor-not-allowed'
-                  : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500'
+                  ? 'bg-[#cc7c5e]/60 cursor-not-allowed'
+                  : 'bg-[#cc7c5e] hover:bg-[#b56a50] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#cc7c5e]'
               }`}
             >
               {isGeneratingAudio ? 'Audio Genereren...' : 'Genereer Audio'}
             </button>
           </div>
-          <div className="prose prose-indigo max-w-none">
+          <div className="prose max-w-none">
             <textarea
               value={editedScript !== null ? editedScript : generatedScript}
               onChange={(e) => setEditedScript(e.target.value)}
-              className="w-full h-96 font-mono text-sm text-gray-800 p-4 rounded-md border border-gray-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+              className="w-full h-96 font-mono text-sm text-[#cc7c5e] p-4 rounded-md border border-[#dad5dd] focus:border-[#cc7c5e] focus:ring-1 focus:ring-[#cc7c5e] bg-white"
               placeholder="Script text..."
             />
           </div>
@@ -430,19 +420,19 @@ export default function PodcastAdminPage() {
 
       {podcasts.length > 0 && (
         <div className="mt-8">
-          <h2 className="text-xl font-semibold mb-4">Bestaande Podcasts</h2>
+          <h2 className="text-xl font-semibold mb-4 text-[#cc7c5e]">Bestaande Podcasts</h2>
           <ul className="space-y-2">
             {podcasts.map((podcast) => (
               <li 
                 key={podcast.id} 
-                className="flex flex-col gap-2 p-4 hover:bg-gray-50 rounded-lg cursor-pointer"
+                className="flex flex-col gap-2 p-4 hover:bg-[#f2f0e9] rounded-lg cursor-pointer border border-[#dad5dd] bg-white"
                 onClick={() => handlePodcastPlay(podcast)}
               >
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-700 hover:text-indigo-600">
+                  <span className="text-[#cc7c5e] hover:text-[#b56a50] transition-colors">
                     {podcast.title}
                   </span>
-                  <span className="text-sm text-gray-500">
+                  <span className="text-sm text-[#897dc9]">
                     {podcast.playCount || 0} keer afgespeeld
                   </span>
                 </div>
