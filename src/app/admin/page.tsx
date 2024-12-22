@@ -235,7 +235,7 @@ export default function PodcastAdminPage() {
       }
 
       // Ensure all podcasts have the required fields with defaults
-      const processedPodcasts = data.podcasts.map((podcast: any) => ({
+      const processedPodcasts = data.podcasts.map((podcast: Podcast) => ({
         ...podcast,
         playCount: podcast.playCount || 0,
         positiveFeedback: podcast.positiveFeedback || 0,

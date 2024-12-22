@@ -19,6 +19,7 @@
     "audiobuffer-to-wav": "^1.0.0",
     "aws-sdk": "^2.1692.0",
     "elevenlabs": "^1.50.2",
+    "elevenlabs-node": "^2.0.3",
     "jose": "^5.9.6",
     "jsonwebtoken": "^9.0.2",
     "next": "15.1.1",
