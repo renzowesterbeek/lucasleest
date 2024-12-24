@@ -51,9 +51,9 @@ export default function Home() {
   const filteredBooks = books.filter((book) => {
     const searchLower = searchQuery.toLowerCase();
     return (
-      book.title.toLowerCase().includes(searchLower) ||
-      book.author.toLowerCase().includes(searchLower) ||
-      (descriptions[book.id] || book.description || '').toLowerCase().includes(searchLower) ||
+      (book.title?.toLowerCase() || '').includes(searchLower) ||
+      (book.author?.toLowerCase() || '').includes(searchLower) ||
+      ((descriptions[book.id] || book.description || '').toLowerCase()).includes(searchLower) ||
       (transcripts[book.id] || '').toLowerCase().includes(searchLower)
     );
   });

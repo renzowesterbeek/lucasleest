@@ -29,7 +29,7 @@ export async function POST(request: Request) {
     const body = await request.json();
     
     // Validate required fields
-    const requiredFields = ['title', 'author', 'description', 'audioLink', 'audioTranscript'];
+    const requiredFields = ['title', 'author', 'coverImage'];
     for (const field of requiredFields) {
       if (!body[field]) {
         return NextResponse.json(
@@ -43,9 +43,9 @@ export async function POST(request: Request) {
       title: body.title,
       author: body.author,
       description: body.description,
-      audioLink: body.audioLink,
-      audioTranscript: body.audioTranscript,
-      coverImage: body.coverImage, // Include cover image URL
+      audioLink: body.audioLink || '',
+      audioTranscript: body.audioTranscript || '',
+      coverImage: body.coverImage,
       libraryLink: body.libraryLink,
     };
 
@@ -53,7 +53,10 @@ export async function POST(request: Request) {
     const newBook = await createBook(bookData);
     console.log('Successfully created book:', newBook);
 
-    return NextResponse.json({ book: newBook });
+    return NextResponse.json({ 
+      id: newBook.id,
+      book: newBook 
+    });
   } catch (error) {
     console.error('Error creating book:', error);
     return NextResponse.json(

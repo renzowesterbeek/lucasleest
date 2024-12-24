@@ -14,7 +14,7 @@ const AudioPlayer = ({ bookKey, title }: AudioPlayerProps) => {
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
-  const animationRef = useRef<number>();
+  const animationRef = useRef<number | undefined>(undefined);
   
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -37,8 +37,11 @@ const AudioPlayer = ({ bookKey, title }: AudioPlayerProps) => {
       if (!audioContextRef.current) {
         try {
           // Safari support
-          const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
-          audioContextRef.current = new AudioContext();
+          const AudioContextClass = window.AudioContext || 
+            // @ts-expect-error - Safari WebKit AudioContext is not typed in Window interface
+            window.webkitAudioContext;
+
+          audioContextRef.current = new AudioContextClass();
           analyserRef.current = audioContextRef.current.createAnalyser();
           analyserRef.current.fftSize = 4096;
           analyserRef.current.smoothingTimeConstant = 0.4;
@@ -115,8 +118,8 @@ const AudioPlayer = ({ bookKey, title }: AudioPlayerProps) => {
             }
           };
 
-          const errorHandler = (e: ErrorEvent) => {
-            console.error('Audio loading error:', e);
+          const errorHandler = (event: Event) => {
+            console.error('Audio loading error:', event);
             setError('Error loading audio. Please try again later.');
             setIsLoading(false);
             cleanup();
@@ -133,7 +136,7 @@ const AudioPlayer = ({ bookKey, title }: AudioPlayerProps) => {
           audio.addEventListener('error', errorHandler);
         }
       } catch (err) {
-        console.error('Error initializing audio:', err);
+        console.error('Error initializing audio:', err instanceof Error ? err.message : err);
         if (isActive) {
           setError('Error loading audio. Please try again later.');
           setIsLoading(false);
@@ -237,8 +240,8 @@ const AudioPlayer = ({ bookKey, title }: AudioPlayerProps) => {
         await audio.play();
       }
       setIsPlaying(!isPlaying);
-    } catch (error) {
-      console.error('Playback error:', error);
+    } catch (err) {
+      console.error('Playback error:', err instanceof Error ? err.message : err);
       setError('Error playing audio. Please try again.');
     }
   };

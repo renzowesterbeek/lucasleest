@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, QueryCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, QueryCommand, UpdateCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 
 // Initialize DynamoDB client
@@ -46,6 +46,13 @@ interface PodcastData {
   updatedAt: string;
 }
 
+interface AudioGenerationRequest {
+  id: string;
+  title: string;
+  script: string;
+  description: string;
+}
+
 // Function to extract dialog lines from script
 function extractDialogLines(script: string): Array<{ speaker: string; text: string }> {
   const lines = script.split('\n');
@@ -69,7 +76,7 @@ function extractDialogLines(script: string): Array<{ speaker: string; text: stri
 // Function to update DynamoDB with audio link
 async function updatePodcastAudioLink(id: string, audioKey: string): Promise<void> {
   const command = new UpdateCommand({
-    TableName: process.env.DYNAMODB_TABLE_NAME,
+    TableName: 'LucasLeestBooks',
     Key: { id },
     UpdateExpression: 'SET audioLink = :audioLink, updatedAt = :updatedAt',
     ExpressionAttributeValues: {
@@ -77,7 +84,14 @@ async function updatePodcastAudioLink(id: string, audioKey: string): Promise<voi
       ':updatedAt': new Date().toISOString(),
     },
   });
-  await docClient.send(command);
+  
+  try {
+    await docClient.send(command);
+    console.log(`Successfully updated audioLink for book ${id} with key ${audioKey}`);
+  } catch (error) {
+    console.error(`Failed to update audioLink for book ${id}:`, error);
+    throw error;
+  }
 }
 
 // Function to generate audio in the background
@@ -210,7 +224,7 @@ async function generateAudioInBackground(id: string, title: string, script: stri
 
         // Update DynamoDB with the audio link
         await updatePodcastAudioLink(id, audioKey);
-        console.log(`DynamoDB updated with audio link for podcast: ${id}`);
+        console.log(`DynamoDB updated with audio link for book: ${id}`);
       } catch (error) {
         retryCount++;
         console.error(`Error uploading to S3 (attempt ${retryCount}/${maxRetries}):`, error);
@@ -229,76 +243,98 @@ async function generateAudioInBackground(id: string, title: string, script: stri
   }
 }
 
+// Function to upload text content to S3
+async function uploadTextToS3(content: string, folder: string, title: string): Promise<string> {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const filename = `${folder}_${title}_${timestamp}.txt`;
+  const key = `${folder}/${filename}`;
+
+  const uploadCommand = new PutObjectCommand({
+    Bucket: process.env.S3_BUCKET_NAME || '',
+    Key: key,
+    Body: content,
+    ContentType: 'text/plain'
+  });
+
+  await s3Client.send(uploadCommand);
+  return key;
+}
+
+// Function to update book with all links
+async function updateBookWithLinks(id: string, links: { 
+  description?: string; 
+  audioTranscript?: string;
+  audioLink?: string;
+}): Promise<void> {
+  const updateExpression = 'SET updatedAt = :updatedAt';
+  const expressionAttributeValues: Record<string, any> = {
+    ':updatedAt': new Date().toISOString()
+  };
+
+  if (links.description) {
+    Object.assign(expressionAttributeValues, { ':description': links.description });
+  }
+  if (links.audioTranscript) {
+    Object.assign(expressionAttributeValues, { ':audioTranscript': links.audioTranscript });
+  }
+  if (links.audioLink) {
+    Object.assign(expressionAttributeValues, { ':audioLink': links.audioLink });
+  }
+
+  const command = new UpdateCommand({
+    TableName: 'LucasLeestBooks',
+    Key: { id },
+    UpdateExpression: `${updateExpression}${links.description ? ', description = :description' : ''}${links.audioTranscript ? ', audioTranscript = :audioTranscript' : ''}${links.audioLink ? ', audioLink = :audioLink' : ''}`,
+    ExpressionAttributeValues: expressionAttributeValues,
+  });
+
+  await docClient.send(command);
+}
+
 export async function POST(request: Request) {
   try {
     if (!process.env.ELEVENLABS_API_KEY) {
       throw new Error('ElevenLabs API key not configured');
     }
 
-    const body = await request.json();
-    const { id, title } = body;
+    const body: AudioGenerationRequest = await request.json();
+    const { id, title, script, description } = body;
 
-    if (!id) {
+    if (!id || !title || !script || !description) {
       return NextResponse.json(
-        { error: 'Podcast ID is required' },
+        { error: 'Missing required fields' },
         { status: 400 }
       );
     }
 
-    if (!title) {
-      return NextResponse.json(
-        { error: 'Book title is required' },
-        { status: 400 }
-      );
-    }
+    // Upload description and transcript to S3
+    console.log('Uploading description and transcript to S3...');
+    const [descriptionUrl, transcriptUrl] = await Promise.all([
+      uploadTextToS3(description, 'descriptions', title),
+      uploadTextToS3(script, 'transcripts', title)
+    ]);
 
-    // Get the podcast data from DynamoDB to access the script
-    const command = new QueryCommand({
-      TableName: process.env.DYNAMODB_TABLE_NAME,
-      KeyConditionExpression: 'id = :id',
-      ExpressionAttributeValues: {
-        ':id': id,
-      },
+    // Update book with description and transcript URLs
+    console.log('Updating book with description and transcript URLs...');
+    await updateBookWithLinks(id, { 
+      description: descriptionUrl, 
+      audioTranscript: transcriptUrl 
     });
-
-    const response = await docClient.send(command);
-    const podcast = response.Items?.[0] as PodcastData;
-
-    if (!podcast) {
-      return NextResponse.json(
-        { error: 'Podcast not found' },
-        { status: 404 }
-      );
-    }
-
-    // Get the transcript from S3
-    const getObjectCommand = new GetObjectCommand({
-      Bucket: process.env.S3_BUCKET_NAME,
-      Key: podcast.audioTranscript,
-    });
-
-    const s3Response = await s3Client.send(getObjectCommand);
-    if (!s3Response.Body) {
-      throw new Error('Failed to retrieve transcript from S3');
-    }
-
-    const script = await s3Response.Body.transformToString();
-    if (!script) {
-      throw new Error('Retrieved transcript is empty');
-    }
 
     // Start audio generation in the background
     generateAudioInBackground(id, title, script)
-      .then(() => {
-        console.log(`Audio generation completed for book: ${title}`);
+      .then(async () => {
+        console.log(`Audio generation completed for book: ${title} (ID: ${id})`);
       })
       .catch((error) => {
-        console.error(`Audio generation failed for book: ${title}`, error);
+        console.error(`Audio generation failed for book: ${title} (ID: ${id})`, error);
       });
 
     return NextResponse.json({
       success: true,
-      message: 'Audio generation started'
+      message: 'Audio generation started',
+      description: descriptionUrl,
+      audioTranscript: transcriptUrl
     });
   } catch (error) {
     console.error('Error starting audio generation:', error);
