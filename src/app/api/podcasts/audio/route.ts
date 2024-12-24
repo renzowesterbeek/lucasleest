@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, QueryCommand, UpdateCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
-import { S3Client, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { DynamoDBDocumentClient, UpdateCommand } from '@aws-sdk/lib-dynamodb';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 
 // Initialize DynamoDB client
 const dynamoClient = new DynamoDBClient({
@@ -32,19 +32,6 @@ const VOICE_MAPPING = {
   'Lucas': 'XHVuHpUhoVONzkko06jn',  // Lucas v2
   'Betsie': 'dCnu06FiOZma2KVNUoPZ'  // Betsie
 };
-
-interface PodcastData {
-  id: string;
-  title: string;
-  author: string;
-  libraryLink?: string;
-  coverImage: string;
-  description: string;
-  audioTranscript: string;
-  audioLink?: string;
-  createdAt: string;
-  updatedAt: string;
-}
 
 interface AudioGenerationRequest {
   id: string;
@@ -267,7 +254,7 @@ async function updateBookWithLinks(id: string, links: {
   audioLink?: string;
 }): Promise<void> {
   const updateExpression = 'SET updatedAt = :updatedAt';
-  const expressionAttributeValues: Record<string, any> = {
+  const expressionAttributeValues: Record<string, string | undefined> = {
     ':updatedAt': new Date().toISOString()
   };
 
