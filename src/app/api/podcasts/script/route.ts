@@ -22,12 +22,14 @@ function readDialogPrompt(): string {
     // First try to read from the frontend directory
     const frontendPath = path.join(process.cwd(), 'frontend', 'dialog_prompt.txt');
     if (fs.existsSync(frontendPath)) {
+      console.log('Reading dialog prompt from frontend directory');
       return fs.readFileSync(frontendPath, 'utf-8');
     }
 
     // If not found, try root directory
     const rootPath = path.join(process.cwd(), 'dialog_prompt.txt');
     if (fs.existsSync(rootPath)) {
+      console.log('Reading dialog prompt from root directory');
       return fs.readFileSync(rootPath, 'utf-8');
     }
 

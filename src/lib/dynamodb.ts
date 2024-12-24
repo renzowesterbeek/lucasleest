@@ -100,7 +100,8 @@ export async function getAllBooks(): Promise<Book[]> {
         TableName,
       })
     );
-    console.log('Scan response:', response);
+    // console.log('Scan response:', response);
+    console.log('Scan response successful');
 
     if (!response.Items) {
       console.log('No items found in table');

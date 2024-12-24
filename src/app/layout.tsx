@@ -10,8 +10,8 @@ const lato = Lato({
 })
 
 export const metadata: Metadata = {
-  title: 'Lucas Leest',
-  description: 'Luister naar boeken voorgelezen door Lucas',
+  title: 'MeesterLucas.nl | Boekenkast',
+  description: 'Luister naar de boekenpodcast van Lucas en Betsie',
 }
 
 export default function RootLayout({

@@ -6,7 +6,7 @@ export async function GET() {
   try {
     console.log('Fetching all books from DynamoDB...');
     const books = await getAllBooks();
-    console.log('Successfully fetched books:', books);
+    console.log('Successfully fetched books.');
     return NextResponse.json({ books });
   } catch (error) {
     console.error('Detailed error fetching books:', {

@@ -46,6 +46,7 @@ export async function POST(request: Request) {
       );
     }
 
+    // UTC time is used in the database
     const body = await request.json();
     const { event, properties, timestamp } = body;
 
