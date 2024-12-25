@@ -69,7 +69,7 @@ export default function AboutPage() {
               Dit project zou zonder de recente ontwikkelingen in AI-technologie niet mogelijk zijn geweest. 
               De combinatie van twee krachtige AI-tools maakt het mogelijk om op grote schaal kwalitatieve 
               boekbesprekingen te creëren: Claude, een taalmodel van Anthropic, helpt bij het schrijven van 
-              de besprekingen, terwijl ElevenLabs' stemtechnologie deze omzet naar natuurlijk klinkende audio.
+              de besprekingen, terwijl ElevenLabs&apos; stemtechnologie deze omzet naar natuurlijk klinkende audio.
             </p>
             <p className="text-gray-600 leading-relaxed mt-4">
               Voor leerlingen die moeite hebben met lezen of voor wie de stap naar een boek te groot voelt, bieden onze podcasts 

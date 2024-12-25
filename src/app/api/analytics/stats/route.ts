@@ -18,9 +18,6 @@ export async function POST(request: Request) {
     const ninetyDaysAgo = new Date();
     ninetyDaysAgo.setDate(today.getDate() - 90);
 
-    const startDate = ninetyDaysAgo.toISOString().split('T')[0];
-    const endDate = today.toISOString().split('T')[0];
-
     // Query analytics data for the specified event type
     const command = new QueryCommand({
       TableName: 'LucasLeestAnalytics',
