@@ -1,8 +1,15 @@
 import { NextResponse } from 'next/server';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, QueryCommand } from '@aws-sdk/lib-dynamodb';
+import { DynamoDBDocumentClient, QueryCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
 
-const client = new DynamoDBClient({});
+const client = new DynamoDBClient({
+  region: process.env.REGION,
+  credentials: {
+    accessKeyId: process.env.ACCESS_KEY_ID || '',
+    secretAccessKey: process.env.SECRET_ACCESS_KEY || '',
+  },
+});
+
 const docClient = DynamoDBDocumentClient.from(client);
 
 export async function POST(request: Request) {
@@ -13,15 +20,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Event type is required' }, { status: 400 });
     }
 
-    // Get today's date and 90 days ago for the query
-    const today = new Date();
-    const ninetyDaysAgo = new Date();
-    ninetyDaysAgo.setDate(today.getDate() - 90);
-
-    // Query analytics data for the specified event type
-    const command = new QueryCommand({
+    // Query analytics data using the primary key pattern
+    const command = new ScanCommand({
       TableName: 'LucasLeestAnalytics',
-      KeyConditionExpression: 'eventName = :event',
+      FilterExpression: 'eventName = :event',
       ExpressionAttributeValues: {
         ':event': event
       }
@@ -33,7 +35,7 @@ export async function POST(request: Request) {
 
       // Aggregate play counts by bookId
       const stats = items.reduce((acc: { [key: string]: number }, item) => {
-        const bookId = item.properties?.bookId;
+        const bookId = item.bookId;
         if (bookId) {
           acc[bookId] = (acc[bookId] || 0) + 1;
         }
@@ -43,12 +45,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ stats });
     } catch (dbError) {
       console.error('DynamoDB query error:', dbError);
-      // If there's an error with the query, return empty stats
       return NextResponse.json({ stats: {} });
     }
   } catch (error) {
     console.error('Error in analytics stats endpoint:', error);
-    // Return empty stats object instead of an error
     return NextResponse.json({ stats: {} });
   }
 } 
