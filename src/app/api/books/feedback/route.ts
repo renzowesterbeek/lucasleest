@@ -87,9 +87,17 @@ export async function POST(request: Request) {
 
     return response;
   } catch (error) {
-    console.error('Error storing feedback:', error);
+    console.error('Error storing feedback:', {
+      error,
+      message: error instanceof Error ? error.message : 'Unknown error',
+      region: process.env.REGION,
+      tableName: process.env.DYNAMODB_TABLE_NAME,
+      // Don't log credentials, but log if they're set
+      hasAccessKeyId: !!process.env.ACCESS_KEY_ID,
+      hasSecretKey: !!process.env.SECRET_ACCESS_KEY
+    });
     return NextResponse.json(
-      { error: 'Failed to store feedback' },
+      { error: error instanceof Error ? error.message : 'Failed to store feedback' },
       { status: 500 }
     );
   }

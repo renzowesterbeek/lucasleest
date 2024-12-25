@@ -3,20 +3,31 @@ frontend:
   phases:
     preBuild:
       commands:
-        - npm ci
-        - echo "REGION=$REGION" >> .env.production
-        - echo "S3_BUCKET_NAME=$S3_BUCKET_NAME" >> .env.production
-        - echo "ACCESS_KEY_ID=$ACCESS_KEY_ID" >> .env.production
-        - echo "SECRET_ACCESS_KEY=$SECRET_ACCESS_KEY" >> .env.production
-        - echo "JWT_SECRET=$JWT_SECRET" >> .env.production
-        - echo "ADMIN_PASSWORD=$ADMIN_PASSWORD" >> .env.production
+        # Use custom npm cache directory
+        - export npm_config_cache=$(pwd)/.npm-cache
+        # Install dependencies with specific flags for faster installation
+        - npm ci --prefer-offline --no-audit
+        # Environment variables
+        - |
+          cat << EOF >> .env.production
+          REGION=$REGION
+          S3_BUCKET_NAME=$S3_BUCKET_NAME
+          ACCESS_KEY_ID=$ACCESS_KEY_ID
+          SECRET_ACCESS_KEY=$SECRET_ACCESS_KEY
+          JWT_SECRET=$JWT_SECRET
+          ADMIN_PASSWORD=$ADMIN_PASSWORD
+          DYNAMODB_TABLE_NAME=$DYNAMODB_TABLE_NAME
+          EOF
     build:
       commands:
-        - npm run build
+        # Build with specific memory allocation and production optimization
+        - NODE_OPTIONS="--max_old_space_size=4096" npm run build
   artifacts:
     baseDirectory: .next
     files:
       - '**/*'
   cache:
     paths:
-      - node_modules/**/* 
+      - node_modules/**/*
+      - .npm-cache/**/*
+      - .next/cache/**/* 
