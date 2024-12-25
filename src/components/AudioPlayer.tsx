@@ -5,16 +5,18 @@ import { useState, useRef, useEffect } from 'react';
 interface AudioPlayerProps {
   bookKey: string;
   title: string;
+  bookId: string;
 }
 
 const BARS_COUNT = 192;
 
-const AudioPlayer = ({ bookKey, title }: AudioPlayerProps) => {
+const AudioPlayer = ({ bookKey, title, bookId }: AudioPlayerProps) => {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const sourceRef = useRef<MediaElementAudioSourceNode | null>(null);
   const animationRef = useRef<number | undefined>(undefined);
+  const hasTrackedPlay = useRef<boolean>(false);
   
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -225,6 +227,35 @@ const AudioPlayer = ({ bookKey, title }: AudioPlayerProps) => {
     };
   }, [isPlaying]);
 
+  const trackPlay = async () => {
+    if (hasTrackedPlay.current) return;
+    
+    try {
+      const response = await fetch('/api/analytics', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          event: 'audio_played',
+          properties: {
+            bookId,
+            title
+          },
+          timestamp: new Date().toISOString(),
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to track play');
+      }
+
+      hasTrackedPlay.current = true;
+    } catch (error) {
+      console.error('Failed to track play:', error);
+    }
+  };
+
   const togglePlayPause = async () => {
     const audio = audioRef.current;
     if (!audio || !isDurationLoaded) return;
@@ -238,6 +269,7 @@ const AudioPlayer = ({ bookKey, title }: AudioPlayerProps) => {
         audio.pause();
       } else {
         await audio.play();
+        await trackPlay();
       }
       setIsPlaying(!isPlaying);
     } catch (err) {
@@ -271,18 +303,15 @@ const AudioPlayer = ({ bookKey, title }: AudioPlayerProps) => {
     }
   };
 
+  // Reset hasTrackedPlay when bookKey changes
+  useEffect(() => {
+    hasTrackedPlay.current = false;
+  }, [bookKey]);
+
   if (error) {
     return (
       <div className="w-full max-w-md mx-auto bg-white rounded-lg shadow-lg p-6">
         <p className="text-red-600 text-center">{error}</p>
-      </div>
-    );
-  }
-
-  if (isLoading || !isDurationLoaded) {
-    return (
-      <div className="w-full max-w-md mx-auto bg-white rounded-lg shadow-lg p-6">
-        <p className="text-center">Audio laden...</p>
       </div>
     );
   }
@@ -315,51 +344,65 @@ const AudioPlayer = ({ bookKey, title }: AudioPlayerProps) => {
           <h2 className="text-sm font-medium text-primary-text-color mb-1">{title}</h2>
           <div className="flex items-center gap-2">
             <div className="flex-grow relative h-12">
-              {/* Audio visualization bars */}
-              <div className="absolute inset-0 flex items-center justify-between pointer-events-none">
-                {audioData.map((height, index) => {
-                  const barProgress = (index / (BARS_COUNT - 1)) * 100;
-                  const isBeforeProgress = barProgress <= progress;
-                  
-                  // Calculate distance from current progress with a smaller window
-                  const distanceFromProgress = Math.abs(barProgress - progress);
-                  const isNearProgress = distanceFromProgress < 8;
-                  
-                  // More dramatic height scaling with audio reactivity
-                  const heightMultiplier = isNearProgress 
-                    ? Math.pow(Math.cos((distanceFromProgress / 8) * (Math.PI / 2)), 1.5) // Less aggressive falloff
-                    : 0.15;
-                  
-                  // Enhanced scaling for active bars
-                  const scaledHeight = height * (isNearProgress ? 2 : 1); // Double the height for active bars
-                  
-                  return (
+              {isLoading || !isDurationLoaded ? (
+                <div className="absolute inset-0 flex items-center justify-between pointer-events-none">
+                  {Array(BARS_COUNT).fill(0).map((_, index) => (
                     <div
                       key={index}
-                      className={`w-[1px] transition-all duration-50 rounded-full ${
-                        isBeforeProgress ? 'bg-primary' : 'bg-background-muted'
-                      }`}
-                      style={{
-                        height: `${Math.max(scaledHeight * heightMultiplier, 8)}%`,
-                        opacity: isPlaying ? 1 : 0.7,
-                        transform: `scaleY(${isPlaying ? 1 : 0.7})`,
-                      }}
+                      className="w-[1px] bg-background-muted/50 h-[8%] rounded-full"
                     />
-                  );
-                })}
-              </div>
-              {/* Progress bar */}
+                  ))}
+                </div>
+              ) : (
+                <div className="absolute inset-0 flex items-center justify-between pointer-events-none">
+                  {audioData.map((height, index) => {
+                    const barProgress = (index / (BARS_COUNT - 1)) * 100;
+                    const isBeforeProgress = barProgress <= progress;
+                    
+                    // Calculate distance from current progress with a smaller window
+                    const distanceFromProgress = Math.abs(barProgress - progress);
+                    const isNearProgress = distanceFromProgress < 8;
+                    
+                    // More dramatic height scaling with audio reactivity
+                    const heightMultiplier = isNearProgress 
+                      ? Math.pow(Math.cos((distanceFromProgress / 8) * (Math.PI / 2)), 1.5) // Less aggressive falloff
+                      : 0.15;
+                    
+                    // Enhanced scaling for active bars
+                    const scaledHeight = height * (isNearProgress ? 2 : 1); // Double the height for active bars
+                    
+                    return (
+                      <div
+                        key={index}
+                        className={`w-[1px] transition-all duration-50 rounded-full ${
+                          isBeforeProgress ? 'bg-primary' : 'bg-background-muted'
+                        }`}
+                        style={{
+                          height: `${Math.max(scaledHeight * heightMultiplier, 8)}%`,
+                          opacity: isPlaying ? 1 : 0.7,
+                          transform: `scaleY(${isPlaying ? 1 : 0.7})`,
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+              )}
               <input
                 type="range"
                 min="0"
                 max={duration || 0}
                 value={currentTime}
                 onChange={handleSeek}
-                className="w-full h-full opacity-0 cursor-pointer relative z-10"
+                disabled={!isDurationLoaded}
+                className={`w-full h-full ${!isDurationLoaded ? 'opacity-0 cursor-not-allowed' : 'opacity-0 cursor-pointer'} relative z-10`}
               />
             </div>
             <div className="flex-shrink-0 text-xs text-primary-text-color/60 min-w-[80px] text-right">
-              {formatTime(currentTime)} / {formatTime(duration)}
+              {isLoading || !isDurationLoaded ? (
+                "Laden..."
+              ) : (
+                `${formatTime(currentTime)} / ${formatTime(duration)}`
+              )}
             </div>
           </div>
         </div>

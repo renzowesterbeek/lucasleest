@@ -1,24 +1,48 @@
 import { NextResponse } from 'next/server';
 import * as jose from 'jose';
+import { checkRateLimit } from '@/lib/rateLimit';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'your-admin-password';
 
 export async function POST(request: Request) {
   try {
+    // Get client IP
+    const forwardedFor = request.headers.get('x-forwarded-for');
+    const ip = forwardedFor ? forwardedFor.split(',')[0] : 'unknown';
+    
+    // Check rate limit before processing login
+    const rateLimitInfo = await checkRateLimit(ip);
+    
+    if (rateLimitInfo.isBlocked) {
+      return NextResponse.json(
+        { 
+          error: 'Too many login attempts', 
+          resetTime: rateLimitInfo.resetTime,
+          remainingAttempts: 0
+        },
+        { status: 429 }
+      );
+    }
+
     const { password } = await request.json();
     
     console.log('Login attempt:', {
       receivedPassword: password,
       expectedPassword: ADMIN_PASSWORD,
       hasJwtSecret: !!JWT_SECRET,
-      isMatch: password === ADMIN_PASSWORD
+      isMatch: password === ADMIN_PASSWORD,
+      remainingAttempts: rateLimitInfo.remainingAttempts
     });
 
     if (password !== ADMIN_PASSWORD) {
       console.log('Password mismatch');
       return NextResponse.json(
-        { error: 'Invalid password' },
+        { 
+          error: 'Invalid password',
+          remainingAttempts: rateLimitInfo.remainingAttempts,
+          resetTime: rateLimitInfo.resetTime
+        },
         { status: 401 }
       );
     }

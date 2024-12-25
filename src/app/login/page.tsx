@@ -3,9 +3,15 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
+interface LoginError {
+  message: string;
+  remainingAttempts?: number;
+  resetTime?: string;
+}
+
 export default function LoginPage() {
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useState<LoginError | null>(null);
   const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -20,13 +26,32 @@ export default function LoginPage() {
         body: JSON.stringify({ password }),
       });
 
+      const data = await response.json();
+
       if (response.ok) {
         router.push('/admin');
       } else {
-        setError('Ongeldig wachtwoord');
+        let errorMessage = data.error;
+        
+        // Add remaining attempts info if available
+        if (data.remainingAttempts !== undefined) {
+          errorMessage += ` (${data.remainingAttempts} attempts remaining)`;
+        }
+        
+        // Add reset time if available
+        if (data.resetTime) {
+          const resetTime = new Date(data.resetTime);
+          errorMessage += `\nPlease try again after ${resetTime.toLocaleTimeString()}`;
+        }
+        
+        setError({
+          message: errorMessage,
+          remainingAttempts: data.remainingAttempts,
+          resetTime: data.resetTime
+        });
       }
     } catch {
-      setError('Er is iets misgegaan');
+      setError({ message: 'Er is iets misgegaan' });
     }
   };
 
@@ -56,8 +81,8 @@ export default function LoginPage() {
           </div>
 
           {error && (
-            <div className="text-red-500 text-sm text-center">
-              {error}
+            <div className="text-red-500 text-sm text-center whitespace-pre-line">
+              {error.message}
             </div>
           )}
 
@@ -65,6 +90,7 @@ export default function LoginPage() {
             <button
               type="submit"
               className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              disabled={error?.remainingAttempts === 0}
             >
               Login
             </button>

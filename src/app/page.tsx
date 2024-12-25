@@ -302,19 +302,19 @@ export default function Home() {
     if (!book) return null;
 
     return (
-      <div className="p-6">
-        <div className="flex justify-between items-start mb-6">
+      <div className="p-4 sm:p-6">
+        <div className="flex justify-between items-start mb-4 sm:mb-6">
           <div>
-            <h4 className="text-xl font-semibold text-primary-text-color">
+            <h4 className="text-lg sm:text-xl font-semibold text-primary-text-color">
               {book.title}
             </h4>
-            <p className="text-sm text-primary-text-color/80 mt-1">
+            <p className="text-xs sm:text-sm text-primary-text-color/80 mt-1">
               {book.author}
             </p>
           </div>
           <button
             onClick={handleCloseSidebar}
-            className="text-primary-text-color/60 hover:text-primary-text-color transition-colors p-1"
+            className="text-primary-text-color/60 hover:text-primary-text-color transition-colors p-2 -mr-2"
             aria-label="Sluit beschrijving"
           >
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -329,7 +329,7 @@ export default function Home() {
               <div className="animate-pulse text-primary-text-color/60">Laden...</div>
             </div>
           ) : (
-            <p className="text-primary-text-color/80 whitespace-pre-line">
+            <p className="text-primary-text-color/80 whitespace-pre-line text-sm sm:text-base">
               {descriptions[book.id] || book.description || ''}
             </p>
           )}
@@ -414,6 +414,7 @@ export default function Home() {
                 <AudioPlayer
                   bookKey={selectedBook.audioLink}
                   title={selectedBook.title}
+                  bookId={selectedBook.id}
                 />
               </div>
               <div className="flex items-center gap-4 ml-4">
@@ -482,7 +483,7 @@ export default function Home() {
               onClick={handleCloseSidebar}
             />
             <div 
-              className={`fixed right-0 top-0 h-screen w-[480px] bg-background-paper shadow-xl z-50 transform transition-transform duration-300 ease-out pt-16 flex flex-col ${
+              className={`fixed right-0 top-0 h-screen bg-background-paper shadow-xl z-50 transform transition-transform duration-300 ease-out pt-16 flex flex-col w-full sm:w-[480px] ${
                 isSidebarVisible && !isSidebarClosing ? 'translate-x-0' : 'translate-x-full'
               }`}
               onClick={(e) => e.stopPropagation()}

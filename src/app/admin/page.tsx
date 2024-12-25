@@ -264,44 +264,51 @@ export default function PodcastAdminPage() {
 
   const fetchPodcasts = async () => {
     try {
-      const response = await fetch('/api/books', {
+      // First fetch all books
+      const booksResponse = await fetch('/api/books', {
         headers: {
           'Cache-Control': 'no-cache',
         }
       });
       
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+      if (!booksResponse.ok) {
+        const errorData = await booksResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP error! status: ${booksResponse.status}`);
       }
       
-      const data = await response.json();
+      const booksData = await booksResponse.json();
       
-      if (!Array.isArray(data.books)) {
+      if (!Array.isArray(booksData.books)) {
         throw new Error('Invalid response format');
       }
 
-      console.log('Raw books data:', data.books);
-
-      const processedPodcasts = data.books.map((book) => {
-        console.log('Processing book:', book);
-        // Log the raw values before processing
-        console.log('Raw values:', {
-          playCount: book.playCount,
-          positiveFeedback: book.positiveFeedback,
-          negativeFeedback: book.negativeFeedback
-        });
-
-        return {
-          id: book.id,
-          title: book.title,
-          author: book.author,
-          audioLink: book.audioLink,
-          playCount: Number(book.playCount) || 0,
-          positiveFeedback: Number(book.positiveFeedback) || 0,
-          negativeFeedback: Number(book.negativeFeedback) || 0
-        };
+      // Then fetch analytics data for play counts
+      const analyticsResponse = await fetch('/api/analytics/stats', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          event: 'audio_played',
+        }),
       });
+
+      if (!analyticsResponse.ok) {
+        throw new Error('Failed to fetch analytics data');
+      }
+
+      const analyticsData = await analyticsResponse.json();
+      const playCountsByBook = analyticsData.stats || {};
+
+      const processedPodcasts = booksData.books.map((book) => ({
+        id: book.id,
+        title: book.title,
+        author: book.author,
+        audioLink: book.audioLink,
+        playCount: playCountsByBook[book.id] || 0,
+        positiveFeedback: Number(book.positiveFeedback) || 0,
+        negativeFeedback: Number(book.negativeFeedback) || 0
+      }));
 
       console.log('Processed podcasts:', processedPodcasts);
 
@@ -505,6 +512,7 @@ export default function PodcastAdminPage() {
           <AudioPlayer
             bookKey={selectedBook.audioLink}
             title={selectedBook.title}
+            bookId={selectedBook.id}
           />
         </div>
       )}
