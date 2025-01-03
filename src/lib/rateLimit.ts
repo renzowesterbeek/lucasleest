@@ -1,90 +1,73 @@
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
-import { DynamoDBDocumentClient, GetCommand, PutCommand } from '@aws-sdk/lib-dynamodb';
+import { headers } from 'next/headers';
 
-const client = new DynamoDBClient({
-  region: process.env.REGION || 'eu-west-1',
-  credentials: {
-    accessKeyId: process.env.ACCESS_KEY_ID || '',
-    secretAccessKey: process.env.SECRET_ACCESS_KEY || '',
-  },
-});
+class RateLimit {
+  private store: Map<string, { count: number; resetTime: number }>;
 
-const docClient = DynamoDBDocumentClient.from(client);
+  constructor() {
+    this.store = new Map();
+  }
 
-const MAX_ATTEMPTS = 3;  // Maximum login attempts
-const WINDOW_SIZE = 15 * 60;  // 15 minutes in seconds
-const TABLE_NAME = 'LucasLeestRateLimit';
+  async check(req: Request, limit: number, window: string): Promise<{ success: boolean; limit: number; remaining: number }> {
+    const ip = req.headers.get('x-forwarded-for') || 'unknown';
+    const windowMs = this.parseWindow(window);
+    const now = Date.now();
 
-export interface RateLimitInfo {
-  remainingAttempts: number;
-  resetTime: Date;
-  isBlocked: boolean;
-}
+    // Clean up expired entries
+    Array.from(this.store.entries()).forEach(([key, value]) => {
+      if (value.resetTime < now) {
+        this.store.delete(key);
+      }
+    });
 
-export async function checkRateLimit(ip: string): Promise<RateLimitInfo> {
-  const now = Math.floor(Date.now() / 1000);  // Current time in seconds
-  
-  try {
-    // Get current rate limit record for IP
-    const response = await docClient.send(
-      new GetCommand({
-        TableName: TABLE_NAME,
-        Key: { ip },
-      })
-    );
-
-    const record = response.Item;
-    
-    if (!record || record.ttl < now) {
-      // No record or expired record, create new one
-      const ttl = now + WINDOW_SIZE;
-      await docClient.send(
-        new PutCommand({
-          TableName: TABLE_NAME,
-          Item: {
-            ip,
-            attempts: 1,
-            ttl,
-            firstAttempt: now,
-          },
-        })
-      );
-      
-      return {
-        remainingAttempts: MAX_ATTEMPTS - 1,
-        resetTime: new Date((now + WINDOW_SIZE) * 1000),
-        isBlocked: false,
-      };
+    const entry = this.store.get(ip);
+    if (!entry) {
+      this.store.set(ip, {
+        count: 1,
+        resetTime: now + windowMs,
+      });
+      return { success: true, limit, remaining: limit - 1 };
     }
 
-    // Increment attempts
-    const attempts = record.attempts + 1;
-    const ttl = record.ttl;
-    
-    await docClient.send(
-      new PutCommand({
-        TableName: TABLE_NAME,
-        Item: {
-          ip,
-          attempts,
-          ttl,
-          firstAttempt: record.firstAttempt,
-        },
-      })
-    );
+    if (entry.resetTime < now) {
+      this.store.set(ip, {
+        count: 1,
+        resetTime: now + windowMs,
+      });
+      return { success: true, limit, remaining: limit - 1 };
+    }
 
-    return {
-      remainingAttempts: Math.max(0, MAX_ATTEMPTS - attempts),
-      resetTime: new Date(ttl * 1000),
-      isBlocked: attempts >= MAX_ATTEMPTS,
-    };
-  } catch (error) {
-    console.error('Rate limit error:', error);
-    // In case of error, allow the request but with a warning
-    return {
-      remainingAttempts: 1,
-      resetTime: new Date(now + WINDOW_SIZE * 1000),
-      isBlocked: false,
-    };
+    if (entry.count >= limit) {
+      return { success: false, limit, remaining: 0 };
+    }
+
+    entry.count += 1;
+    return { success: true, limit, remaining: limit - entry.count };
   }
-} 
+
+  private parseWindow(window: string): number {
+    const [value, unit] = window.split(' ');
+    const numValue = parseInt(value, 10);
+
+    switch (unit.toLowerCase()) {
+      case 's':
+      case 'sec':
+      case 'second':
+      case 'seconds':
+        return numValue * 1000;
+      case 'm':
+      case 'min':
+      case 'minute':
+      case 'minutes':
+        return numValue * 60 * 1000;
+      case 'h':
+      case 'hr':
+      case 'hour':
+      case 'hours':
+        return numValue * 60 * 60 * 1000;
+      default:
+        throw new Error('Invalid time unit');
+    }
+  }
+}
+
+export const rateLimit = new RateLimit(); 

@@ -29,7 +29,7 @@ const s3Client = new S3Client({
 
 // Voice mapping for different speakers
 const VOICE_MAPPING = {
-  'Lucas': 'XHVuHpUhoVONzkko06jn',  // Lucas v2
+  'Lucas': 'NDwreA5aul2HhBDhMcyW',  // Lucas v2
   'Betsie': 'dCnu06FiOZma2KVNUoPZ'  // Betsie
 };
 
@@ -130,8 +130,8 @@ async function generateAudioInBackground(id: string, title: string, script: stri
               text,
               model_id: "eleven_multilingual_v2",
               voice_settings: {
-                stability: 0.5,
-                similarity_boost: 0.7
+                stability: 0.6,
+                similarity_boost: 0.6
               },
               previous_request_ids: previousRequestIds
             })

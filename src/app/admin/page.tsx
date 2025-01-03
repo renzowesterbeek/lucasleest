@@ -12,6 +12,9 @@ const AudioPlayer = dynamic(
 
 interface Review {
   text: string;
+  title?: string;
+  sourceUrl?: string;
+  quality?: number;
 }
 
 interface Podcast {
@@ -78,6 +81,8 @@ export default function PodcastAdminPage() {
   const [coverFile, setCoverFile] = useState<File>();
   const [currentPodcastId, setCurrentPodcastId] = useState<string | null>(null);
   const [currentBookTitle, setCurrentBookTitle] = useState<string | null>(null);
+  const [isSearchingReviews, setIsSearchingReviews] = useState(false);
+  const [isFetchingReviews, setIsFetchingReviews] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
 
   const handleGenerateScript = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -245,20 +250,66 @@ export default function PodcastAdminPage() {
     }
   };
 
-  const addReview = () => {
-    setReviews([...reviews, { text: '' }]);
-  };
+  const handleSearchReviews = async () => {
+    if (!title.trim()) {
+      setError('Vul eerst een titel in');
+      return;
+    }
+    
+    setIsSearchingReviews(true);
+    setError(null);
+    setReviews([]);
 
-  const updateReview = (index: number, text: string) => {
-    const newReviews = [...reviews];
-    newReviews[index] = { text };
-    setReviews(newReviews);
-  };
+    try {
+      const response = await fetch('/api/books/reviews', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          title,
+          author
+        }),
+      });
 
-  const removeReview = (index: number) => {
-    if (reviews.length > 1) {
-      const newReviews = reviews.filter((_, i) => i !== index);
-      setReviews(newReviews);
+      if (!response.ok) {
+        throw new Error('Failed to fetch search results');
+      }
+
+      const data = await response.json();
+      
+      // Automatically fetch content for all search results
+      setIsFetchingReviews(true);
+      const contentResponse = await fetch('/api/books/fetch-content', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          urls: data.searchResults.map((r: any) => r.url),
+          title,
+          author
+        }),
+      });
+
+      if (!contentResponse.ok) {
+        throw new Error('Failed to fetch reviews');
+      }
+
+      const reviewsData = await contentResponse.json();
+      setReviews(reviewsData.reviews.map((review: any) => ({
+        text: review.content,
+        title: review.title,
+        sourceUrl: review.url,
+        quality: review.quality
+      })));
+      
+      setSuccessMessage('Recensies succesvol opgehaald!');
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to fetch reviews');
+    } finally {
+      setIsSearchingReviews(false);
+      setIsFetchingReviews(false);
     }
   };
 
@@ -418,35 +469,88 @@ export default function PodcastAdminPage() {
             <label className="block text-sm font-medium text-gray-900">
               Recensies
             </label>
-            <button
-              type="button"
-              onClick={addReview}
-              className="inline-flex items-center px-3 py-1 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-            >
-              Recensie Toevoegen
-            </button>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleSearchReviews}
+                disabled={isSearchingReviews || isFetchingReviews || !title.trim()}
+                className={`inline-flex items-center px-3 py-1 border border-transparent text-sm font-medium rounded-md text-white ${
+                  isSearchingReviews || isFetchingReviews || !title.trim()
+                    ? 'bg-indigo-400 cursor-not-allowed'
+                    : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500'
+                }`}
+              >
+                {isSearchingReviews ? 'Zoeken...' : isFetchingReviews ? 'Recensies Ophalen...' : 'Zoek Recensies'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setReviews([...reviews, { text: '' }])}
+                className="inline-flex items-center px-3 py-1 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              >
+                Handmatig Toevoegen
+              </button>
+            </div>
           </div>
           
           {reviews.map((review, index) => (
-            <div key={index} className="relative">
-              <textarea
-                value={review.text}
-                onChange={(e) => updateReview(index, e.target.value)}
-                rows={3}
-                className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 bg-white text-gray-900 px-4 py-3"
-                placeholder="Voer de review tekst in"
-              />
-              {reviews.length > 1 && (
+            <div key={index} className="relative p-4 bg-background-paper rounded-lg border border-background-muted">
+              <div className="flex justify-between items-start mb-2">
+                <div className="flex-grow">
+                  {review.title && (
+                    <input
+                      type="text"
+                      value={review.title}
+                      onChange={(e) => {
+                        const newReviews = [...reviews];
+                        newReviews[index] = { ...newReviews[index], title: e.target.value };
+                        setReviews(newReviews);
+                      }}
+                      className="w-full font-medium text-primary bg-transparent border-none p-0 focus:ring-0"
+                      placeholder="Review titel"
+                    />
+                  )}
+                  {review.quality !== undefined && (
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-xs text-gray-500">
+                        Kwaliteit: <span className={`font-medium ${review.quality >= 8 ? 'text-green-600' : review.quality >= 6 ? 'text-yellow-600' : 'text-red-600'}`}>{review.quality}/10</span>
+                      </span>
+                      {review.sourceUrl && (
+                        <a 
+                          href={review.sourceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-primary-hover hover:underline"
+                        >
+                          Bekijk origineel
+                        </a>
+                      )}
+                    </div>
+                  )}
+                </div>
                 <button
                   type="button"
-                  onClick={() => removeReview(index)}
-                  className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"
+                  onClick={() => {
+                    const newReviews = reviews.filter((_, i) => i !== index);
+                    setReviews(newReviews.length ? newReviews : [{ text: '' }]);
+                  }}
+                  className="text-gray-400 hover:text-gray-600 ml-2"
                 >
                   <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </button>
-              )}
+              </div>
+              <textarea
+                value={review.text}
+                onChange={(e) => {
+                  const newReviews = [...reviews];
+                  newReviews[index] = { ...newReviews[index], text: e.target.value };
+                  setReviews(newReviews);
+                }}
+                rows={3}
+                className="w-full text-secondary bg-transparent border-none p-0 focus:ring-0 mt-2"
+                placeholder="Review tekst"
+              />
             </div>
           ))}
         </div>
