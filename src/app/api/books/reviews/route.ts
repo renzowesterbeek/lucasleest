@@ -36,13 +36,10 @@ export async function POST(req: Request) {
     // Get API key inside the function
     const BRAVE_API_KEY = process.env.BRAVE_API_KEY;
 
-    // Debug environment variables
+    // Debug environment variables (without exposing sensitive data)
     console.log('[DEBUG] Environment check:', {
       hasBraveKey: !!BRAVE_API_KEY,
-      keyLength: BRAVE_API_KEY?.length,
-      nodeEnv: process.env.NODE_ENV,
-      // Log first and last 4 chars if key exists (for safe debugging)
-      keyPreview: BRAVE_API_KEY ? `${BRAVE_API_KEY.slice(0, 4)}...${BRAVE_API_KEY.slice(-4)}` : 'not set'
+      nodeEnv: process.env.NODE_ENV
     });
 
     // Rate limiting
@@ -92,10 +89,16 @@ export async function POST(req: Request) {
     });
 
     if (!searchResponse.ok) {
-      throw new Error('Failed to fetch from Brave Search');
+      const errorText = await searchResponse.text();
+      console.error('[DEBUG] Search API error:', {
+        status: searchResponse.status,
+        statusText: searchResponse.statusText
+      });
+      throw new Error(`Failed to fetch from Brave Search: ${searchResponse.status}`);
     }
 
     const searchData: BraveSearchResponse = await searchResponse.json();
+    console.log('[DEBUG] Search results count:', searchData.web?.results?.length || 0);
     
     // Extract and format search results
     const searchResults = searchData.web?.results?.slice(0, 15)
@@ -115,6 +118,8 @@ export async function POST(req: Request) {
                text.includes('samenvatting') || text.includes('boek');
       }) || [];
 
+    console.log('[DEBUG] Filtered results count:', searchResults.length);
+
     return new NextResponse(JSON.stringify({ searchResults }), {
       status: 200,
       headers: {
@@ -122,7 +127,10 @@ export async function POST(req: Request) {
       },
     });
   } catch (error) {
-    console.error('Book search error:', error);
+    console.error('[DEBUG] Search error:', {
+      message: error instanceof Error ? error.message : 'Unknown error',
+      type: error instanceof Error ? error.constructor.name : typeof error
+    });
     return new NextResponse(JSON.stringify({ error: 'Failed to search for reviews' }), {
       status: 500,
     });
