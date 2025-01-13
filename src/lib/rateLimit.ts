@@ -1,5 +1,3 @@
-import { headers } from 'next/headers';
-
 class RateLimit {
   private store: Map<string, { count: number; resetTime: number }>;
 

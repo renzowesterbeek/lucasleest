@@ -20,6 +20,30 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Code Quality and AWS Amplify Deployment
+
+Before deploying to AWS Amplify, run the following commands to catch potential build issues locally:
+
+```bash
+# Run all checks (recommended before pushing)
+npm run check:all
+
+# Only run strict linting
+npm run lint:strict
+
+# Automatically fix linting issues
+npm run lint:fix
+
+# Only run type checking
+npm run type-check
+```
+
+These commands will help catch common issues that might fail the AWS Amplify build:
+- Unused imports
+- TypeScript errors
+- ESLint violations
+- Type checking issues
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:

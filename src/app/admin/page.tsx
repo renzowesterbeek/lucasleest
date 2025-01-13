@@ -27,6 +27,25 @@ interface Podcast {
   negativeFeedback: number;
 }
 
+interface SearchResult {
+  url: string;
+}
+
+interface ReviewResponse {
+  title: string;
+  content: string;
+  url: string;
+  quality: number;
+}
+
+interface SearchResponse {
+  searchResults: SearchResult[];
+}
+
+interface ReviewsData {
+  reviews: ReviewResponse[];
+}
+
 const FeedbackBar = ({ positive = 0, negative = 0 }: { positive: number; negative: number }) => {
   const total = positive + negative;
   const positivePercentage = total > 0 ? Math.round((positive / total) * 100) : 50;
@@ -276,7 +295,7 @@ export default function PodcastAdminPage() {
         throw new Error('Failed to fetch search results');
       }
 
-      const data = await response.json();
+      const data = await response.json() as SearchResponse;
       
       // Automatically fetch content for all search results
       setIsFetchingReviews(true);
@@ -286,7 +305,7 @@ export default function PodcastAdminPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ 
-          urls: data.searchResults.map((r: any) => r.url),
+          urls: data.searchResults.map((r: SearchResult) => r.url),
           title,
           author
         }),
@@ -296,8 +315,8 @@ export default function PodcastAdminPage() {
         throw new Error('Failed to fetch reviews');
       }
 
-      const reviewsData = await contentResponse.json();
-      setReviews(reviewsData.reviews.map((review: any) => ({
+      const reviewsData = await contentResponse.json() as ReviewsData;
+      setReviews(reviewsData.reviews.map((review: ReviewResponse) => ({
         text: review.content,
         title: review.title,
         sourceUrl: review.url,
