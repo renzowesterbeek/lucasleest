@@ -1,5 +1,27 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## AWS Amplify Build Issues
+
+If you encounter build issues or cache-related warnings in AWS Amplify (e.g., "Unable to write cache"), try these steps:
+
+1. Locally:
+```bash
+# Clear local cache and build files
+npm run clean
+
+# Reinstall dependencies
+rm -rf node_modules
+npm install
+
+# Run all checks before pushing
+npm run check:all
+```
+
+2. In AWS Amplify Console:
+   - Go to App Settings > Build Settings
+   - Clear build cache by clicking "Clear build cache"
+   - Rebuild the application
+
 ## Getting Started
 
 First, run the development server:

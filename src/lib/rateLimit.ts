@@ -68,4 +68,24 @@ class RateLimit {
   }
 }
 
-export const rateLimit = new RateLimit(); 
+export const rateLimit = new RateLimit();
+
+// Login rate limit configuration
+const LOGIN_LIMIT = 5;
+const LOGIN_WINDOW = '15 min';
+
+export async function checkRateLimit(ip: string): Promise<{ isBlocked: boolean; remainingAttempts: number; resetTime: number }> {
+  const mockRequest = new Request('http://localhost', {
+    headers: new Headers({
+      'x-forwarded-for': ip
+    })
+  });
+
+  const result = await rateLimit.check(mockRequest, LOGIN_LIMIT, LOGIN_WINDOW);
+  
+  return {
+    isBlocked: !result.success,
+    remainingAttempts: result.remaining,
+    resetTime: Date.now() + rateLimit['parseWindow'](LOGIN_WINDOW)
+  };
+} 
