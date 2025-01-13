@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 import { rateLimit } from '@/lib/rateLimit';
 
-const BRAVE_API_KEY = process.env.BRAVE_API_KEY;
 const BRAVE_SEARCH_URL = 'https://api.search.brave.com/res/v1/web/search';
 
 interface BraveSearchResult {
@@ -34,6 +33,18 @@ function cleanHtml(text: string): string {
 
 export async function POST(req: Request) {
   try {
+    // Get API key inside the function
+    const BRAVE_API_KEY = process.env.BRAVE_API_KEY;
+
+    // Debug environment variables
+    console.log('[DEBUG] Environment check:', {
+      hasBraveKey: !!BRAVE_API_KEY,
+      keyLength: BRAVE_API_KEY?.length,
+      nodeEnv: process.env.NODE_ENV,
+      // Log first and last 4 chars if key exists (for safe debugging)
+      keyPreview: BRAVE_API_KEY ? `${BRAVE_API_KEY.slice(0, 4)}...${BRAVE_API_KEY.slice(-4)}` : 'not set'
+    });
+
     // Rate limiting
     const limiter = await rateLimit.check(req, 10, '10 s');
     
@@ -57,7 +68,13 @@ export async function POST(req: Request) {
     }
 
     if (!BRAVE_API_KEY) {
-      return new NextResponse(JSON.stringify({ error: 'Brave API key not configured' }), {
+      return new NextResponse(JSON.stringify({ 
+        error: 'Brave API key not configured',
+        debug: {
+          nodeEnv: process.env.NODE_ENV,
+          hasKey: !!process.env.BRAVE_API_KEY
+        }
+      }), {
         status: 500,
       });
     }
