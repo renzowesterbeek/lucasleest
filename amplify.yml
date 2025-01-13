@@ -17,6 +17,7 @@ frontend:
           JWT_SECRET=$JWT_SECRET
           ADMIN_PASSWORD=$ADMIN_PASSWORD
           DYNAMODB_TABLE_NAME=$DYNAMODB_TABLE_NAME
+          BRAVE_API_KEY=$BRAVE_API_KEY
           EOF
     build:
       commands:
