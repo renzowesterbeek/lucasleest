@@ -292,7 +292,8 @@ export default function PodcastAdminPage() {
       });
 
       if (!response.ok) {
-        throw new Error('Failed to fetch search results');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.details || `Error: ${response.status} ${response.statusText}`);
       }
 
       const data = await response.json() as SearchResponse;
@@ -312,10 +313,16 @@ export default function PodcastAdminPage() {
       });
 
       if (!contentResponse.ok) {
-        throw new Error('Failed to fetch reviews');
+        const errorData = await contentResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || errorData.details || 'Failed to fetch reviews');
       }
 
       const reviewsData = await contentResponse.json() as ReviewsData;
+      
+      if (!reviewsData.reviews || !Array.isArray(reviewsData.reviews)) {
+        throw new Error('Invalid response format from review service');
+      }
+      
       setReviews(reviewsData.reviews.map((review: ReviewResponse) => ({
         text: review.content,
         title: review.title,
@@ -325,7 +332,12 @@ export default function PodcastAdminPage() {
       
       setSuccessMessage('Recensies succesvol opgehaald!');
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to fetch reviews');
+      console.error('Review search error:', error);
+      setError(
+        error instanceof Error 
+          ? error.message 
+          : 'Er is een fout opgetreden bij het ophalen van de recensies'
+      );
     } finally {
       setIsSearchingReviews(false);
       setIsFetchingReviews(false);
