@@ -44,21 +44,30 @@ async function analyzeAndExtractReviews(urls: string[], bookTitle: string, bookA
         .replace(/<[^>]+>/g, '')
         .replace(/\n+/g, '\n')
         .replace(/\s+/g, ' ')
+        .replace(/\[.*?\]/g, '') // Remove square bracket content
+        .replace(/\(.*?\)/g, '') // Remove parenthetical content
         .trim();
 
-      console.log(`[DEBUG] Cleaned content length: ${cleanContent.length} characters`);
-      console.log('[DEBUG] First 200 chars of cleaned content:', cleanContent.substring(0, 200));
+      // Limit content length more aggressively
+      const MAX_CONTENT_LENGTH = 4000;
+      const truncatedContent = cleanContent.slice(0, MAX_CONTENT_LENGTH);
+      if (truncatedContent.length < cleanContent.length) {
+        console.log(`[DEBUG] Content truncated from ${cleanContent.length} to ${MAX_CONTENT_LENGTH} characters`);
+      }
+
+      console.log(`[DEBUG] Cleaned content length: ${truncatedContent.length} characters`);
+      console.log('[DEBUG] First 200 chars of cleaned content:', truncatedContent.substring(0, 200));
 
       // Use Claude to analyze and extract the review
       console.log('[DEBUG] Sending request to Claude...', {
-        contentLength: cleanContent.length,
+        contentLength: truncatedContent.length,
         modelVersion: 'claude-3-5-haiku-latest'
       });
       
       const message = await anthropic.messages.create({
         model: 'claude-3-5-haiku-latest',
-        max_tokens: 1000, // Reduced from 2000 to be more conservative
-        temperature: 0, // Add temperature 0 for more consistent results
+        max_tokens: 1000,
+        temperature: 0,
         system: "Je bent een expert in het analyseren van boekrecensies en samenvattingen. Je communiceert ALLEEN in JSON formaat. Gebruik geen natuurlijke taal in je antwoorden. Wees beknopt.",
         messages: [{
           role: 'user',
@@ -94,7 +103,7 @@ BELANGRIJK:
 
 Tekst:
 
-${cleanContent.slice(0, 8000)}`  // Limit content length to avoid timeouts
+${truncatedContent.slice(0, 8000)}`  // Limit content length to avoid timeouts
         }]
       }).catch(error => {
         console.error('[DEBUG] Claude API error:', {
