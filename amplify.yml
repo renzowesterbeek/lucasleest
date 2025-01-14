@@ -18,6 +18,7 @@ frontend:
           ADMIN_PASSWORD=$ADMIN_PASSWORD
           BRAVE_API_KEY=$BRAVE_API_KEY
           DYNAMODB_TABLE_NAME=$DYNAMODB_TABLE_NAME
+          ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
           EOF
     build:
       commands:
