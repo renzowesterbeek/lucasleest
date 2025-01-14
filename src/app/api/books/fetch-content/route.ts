@@ -8,20 +8,6 @@ const anthropic = new Anthropic({
   apiKey: ANTHROPIC_API_KEY
 });
 
-interface ReviewResult {
-  title: string;
-  content: string;
-  url: string;
-  quality: number;
-}
-
-interface AnalyzedReview {
-  title: string;
-  content: string;
-  url: string;
-  quality: number;
-}
-
 // Add SSE helper function
 function streamResponse(readable: ReadableStream) {
   return new Response(readable, {
