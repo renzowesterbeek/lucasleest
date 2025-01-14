@@ -190,11 +190,68 @@ export async function POST(req: Request) {
       });
     }
 
-    // Process all URLs and get the best reviews
-    const reviews = await analyzeAndExtractReviews(urls, title, author);
-    console.log('[DEBUG] Returning reviews:', JSON.stringify(reviews, null, 2));
+    // Process URLs in smaller batches to avoid timeouts
+    const BATCH_SIZE = 3; // Process 3 URLs at a time
+    const urlBatches = [];
+    for (let i = 0; i < urls.length; i += BATCH_SIZE) {
+      urlBatches.push(urls.slice(i, i + BATCH_SIZE));
+    }
 
-    return new NextResponse(JSON.stringify({ reviews }), {
+    let allReviews: ReviewResult[] = [];
+    
+    for (const batchUrls of urlBatches) {
+      try {
+        // Set a timeout for each batch
+        const timeoutPromise = new Promise<ReviewResult[]>((_, reject) => {
+          setTimeout(() => reject(new Error('Batch timeout')), 25000); // 25 second timeout
+        });
+
+        const batchReviews = await Promise.race([
+          analyzeAndExtractReviews(batchUrls, title, author),
+          timeoutPromise
+        ]);
+
+        allReviews = allReviews.concat(batchReviews);
+
+        // If we have enough good reviews, we can return early
+        const goodReviews = allReviews.filter(r => r.quality >= 6);
+        if (goodReviews.length >= 4) {
+          console.log('[DEBUG] Found enough good reviews, returning early');
+          break;
+        }
+      } catch (batchError) {
+        console.error('[DEBUG] Batch processing error:', batchError);
+        // Continue with next batch even if this one failed
+        continue;
+      }
+    }
+
+    // Sort and filter all reviews
+    allReviews.sort((a, b) => b.quality - a.quality);
+    
+    // Ensure we have at least some reviews, even if lower quality
+    if (allReviews.length === 0) {
+      console.log('[DEBUG] No reviews found, processing remaining URLs individually');
+      // Try to get at least one review
+      for (const url of urls) {
+        try {
+          const singleReview = await analyzeAndExtractReviews([url], title, author);
+          if (singleReview.length > 0) {
+            allReviews = allReviews.concat(singleReview);
+            break;
+          }
+        } catch (error) {
+          console.error(`[DEBUG] Error processing single URL ${url}:`, error);
+        }
+      }
+    }
+
+    console.log('[DEBUG] Total reviews found:', allReviews.length);
+
+    return new NextResponse(JSON.stringify({ 
+      reviews: allReviews.slice(0, 5),
+      totalFound: allReviews.length
+    }), {
       status: 200,
       headers: {
         'Content-Type': 'application/json',
@@ -203,9 +260,10 @@ export async function POST(req: Request) {
   } catch (error) {
     console.error('[DEBUG] Content fetch error:', error);
     return new NextResponse(JSON.stringify({ 
-      reviews: []
+      error: 'Failed to fetch reviews',
+      details: error instanceof Error ? error.message : 'Unknown error'
     }), {
-      status: 200,
+      status: 500,
       headers: {
         'Content-Type': 'application/json',
       },
