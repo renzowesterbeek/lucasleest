@@ -192,7 +192,7 @@ export async function POST(req: Request) {
 
     // Process URLs in smaller batches to avoid timeouts
     const BATCH_SIZE = 3; // Process 3 URLs at a time
-    const urlBatches = [];
+    const urlBatches: string[][] = [];
     for (let i = 0; i < urls.length; i += BATCH_SIZE) {
       urlBatches.push(urls.slice(i, i + BATCH_SIZE));
     }
