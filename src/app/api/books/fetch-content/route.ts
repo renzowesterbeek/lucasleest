@@ -50,12 +50,16 @@ async function analyzeAndExtractReviews(urls: string[], bookTitle: string, bookA
       console.log('[DEBUG] First 200 chars of cleaned content:', cleanContent.substring(0, 200));
 
       // Use Claude to analyze and extract the review
-      console.log('[DEBUG] Sending request to Claude...');
+      console.log('[DEBUG] Sending request to Claude...', {
+        contentLength: cleanContent.length,
+        modelVersion: 'claude-3-5-haiku-latest'
+      });
       
       const message = await anthropic.messages.create({
         model: 'claude-3-5-haiku-latest',
-        max_tokens: 2000,
-        system: "Je bent een expert in het analyseren van boekrecensies en samenvattingen. Je communiceert ALLEEN in JSON formaat. Gebruik geen natuurlijke taal in je antwoorden.",
+        max_tokens: 1000, // Reduced from 2000 to be more conservative
+        temperature: 0, // Add temperature 0 for more consistent results
+        system: "Je bent een expert in het analyseren van boekrecensies en samenvattingen. Je communiceert ALLEEN in JSON formaat. Gebruik geen natuurlijke taal in je antwoorden. Wees beknopt.",
         messages: [{
           role: 'user',
           content: `Analyseer de volgende tekst van ${url} over het boek "${bookTitle}"${bookAuthor ? ` van ${bookAuthor}` : ''} en retourneer ALLEEN een JSON object met deze structuur:
@@ -90,8 +94,16 @@ BELANGRIJK:
 
 Tekst:
 
-${cleanContent}`
+${cleanContent.slice(0, 8000)}`  // Limit content length to avoid timeouts
         }]
+      }).catch(error => {
+        console.error('[DEBUG] Claude API error:', {
+          message: error.message,
+          type: error.type,
+          status: error.status,
+          stack: error.stack
+        });
+        throw error;
       });
 
       try {
@@ -101,6 +113,11 @@ ${cleanContent}`
           console.error('[DEBUG] No text content found in Claude response');
           continue;
         }
+
+        console.log('[DEBUG] Received Claude response:', {
+          responseLength: responseText.length,
+          firstChars: responseText.slice(0, 100)
+        });
 
         const result = JSON.parse(responseText);
         console.log('[DEBUG] Parsed result:', JSON.stringify(result, null, 2));
@@ -201,6 +218,12 @@ export async function POST(req: Request) {
     
     for (const batchUrls of urlBatches) {
       try {
+        console.log('[DEBUG] Processing batch:', {
+          urls: batchUrls,
+          batchSize: batchUrls.length,
+          totalProcessedSoFar: allReviews.length
+        });
+
         // Set a timeout for each batch
         const timeoutPromise = new Promise<ReviewResult[]>((_, reject) => {
           setTimeout(() => reject(new Error('Batch timeout')), 25000); // 25 second timeout
@@ -211,16 +234,28 @@ export async function POST(req: Request) {
           timeoutPromise
         ]);
 
+        console.log('[DEBUG] Batch processed successfully:', {
+          reviewsFound: batchReviews.length,
+          qualityScores: batchReviews.map(r => r.quality)
+        });
+
         allReviews = allReviews.concat(batchReviews);
 
         // If we have enough good reviews, we can return early
         const goodReviews = allReviews.filter(r => r.quality >= 6);
         if (goodReviews.length >= 4) {
-          console.log('[DEBUG] Found enough good reviews, returning early');
+          console.log('[DEBUG] Found enough good reviews, returning early:', {
+            totalReviews: allReviews.length,
+            goodReviews: goodReviews.length
+          });
           break;
         }
       } catch (batchError) {
-        console.error('[DEBUG] Batch processing error:', batchError);
+        console.error('[DEBUG] Batch processing error:', {
+          error: batchError instanceof Error ? batchError.message : 'Unknown error',
+          stack: batchError instanceof Error ? batchError.stack : undefined,
+          urls: batchUrls
+        });
         // Continue with next batch even if this one failed
         continue;
       }
@@ -231,22 +266,35 @@ export async function POST(req: Request) {
     
     // Ensure we have at least some reviews, even if lower quality
     if (allReviews.length === 0) {
-      console.log('[DEBUG] No reviews found, processing remaining URLs individually');
+      console.log('[DEBUG] No reviews found, attempting single URL processing');
       // Try to get at least one review
       for (const url of urls) {
         try {
+          console.log('[DEBUG] Attempting single URL:', url);
           const singleReview = await analyzeAndExtractReviews([url], title, author);
           if (singleReview.length > 0) {
+            console.log('[DEBUG] Successfully processed single URL:', {
+              url,
+              quality: singleReview[0].quality
+            });
             allReviews = allReviews.concat(singleReview);
             break;
           }
         } catch (error) {
-          console.error(`[DEBUG] Error processing single URL ${url}:`, error);
+          console.error('[DEBUG] Single URL processing error:', {
+            url,
+            error: error instanceof Error ? error.message : 'Unknown error',
+            stack: error instanceof Error ? error.stack : undefined
+          });
         }
       }
     }
 
-    console.log('[DEBUG] Total reviews found:', allReviews.length);
+    console.log('[DEBUG] Final results:', {
+      totalReviews: allReviews.length,
+      qualityScores: allReviews.map(r => r.quality),
+      urls: allReviews.map(r => r.url)
+    });
 
     return new NextResponse(JSON.stringify({ 
       reviews: allReviews.slice(0, 5),
