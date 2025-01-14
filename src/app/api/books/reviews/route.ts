@@ -92,9 +92,10 @@ export async function POST(req: Request) {
       const errorText = await searchResponse.text();
       console.error('[DEBUG] Search API error:', {
         status: searchResponse.status,
-        statusText: searchResponse.statusText
+        statusText: searchResponse.statusText,
+        response: errorText
       });
-      throw new Error(`Failed to fetch from Brave Search: ${searchResponse.status}`);
+      throw new Error(`Failed to fetch from Brave Search: ${searchResponse.status} - ${errorText}`);
     }
 
     const searchData: BraveSearchResponse = await searchResponse.json();
