@@ -10,13 +10,14 @@ interface SearchResult {
 
 interface Review {
   title: string;
-  text: string;
-  sourceUrl: string;
+  content: string;
+  url: string;
+  quality: number;
 }
 
 export default function RecensieZoekerPage() {
   const [title, setTitle] = useState('');
-  const [author, setAuthor] = useState('');
+  const [bookAuthor, setBookAuthor] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingContent, setIsFetchingContent] = useState(false);
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -40,7 +41,7 @@ export default function RecensieZoekerPage() {
         },
         body: JSON.stringify({ 
           title,
-          author
+          bookAuthor
         }),
       });
 
@@ -74,32 +75,53 @@ export default function RecensieZoekerPage() {
 
     try {
       const urlArray = Array.from(selectedUrls);
-      const urlToTitle = new Map(searchResults.map(result => [result.url, result.title]));
+      
+      const response = await fetch('/api/books/fetch-content', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          urls: urlArray,
+          title,
+          bookAuthor
+        }),
+      });
 
-      for (const url of urlArray) {
-        try {
-          const response = await fetch('/api/books/fetch-content', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ url }),
-          });
+      if (!response.ok) {
+        throw new Error('Failed to fetch content');
+      }
 
-          if (response.ok) {
-            const data = await response.json();
-            newReviews.push({
-              title: urlToTitle.get(url) || 'Naamloze Recensie',
-              text: data.content,
-              sourceUrl: url
-            });
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+
+      while (reader) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const events = chunk.split('\n\n').filter(Boolean);
+
+        for (const event of events) {
+          try {
+            const data = JSON.parse(event);
+            if (data.type === 'review') {
+              newReviews.push(data.review);
+              // Sort reviews by quality and update state
+              const sortedReviews = [...newReviews].sort((a, b) => b.quality - a.quality);
+              setReviews(sortedReviews);
+            } else if (data.type === 'progress') {
+              console.log(`Progress update for ${data.url}: ${data.status}`);
+              if (data.status === 'error') {
+                console.error(`Error processing ${data.url}: ${data.reason}`);
+              }
+            }
+          } catch (error) {
+            console.error('Failed to parse event:', error);
           }
-        } catch (error) {
-          console.error(`Failed to fetch content from ${url}:`, error);
         }
       }
 
-      setReviews(newReviews);
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to fetch content');
     } finally {
@@ -107,9 +129,9 @@ export default function RecensieZoekerPage() {
     }
   };
 
-  const updateReview = (index: number, title: string, text: string) => {
+  const updateReview = (index: number, title: string, content: string) => {
     const newReviews = [...reviews];
-    newReviews[index] = { ...newReviews[index], title, text };
+    newReviews[index] = { ...newReviews[index], title, content };
     setReviews(newReviews);
   };
 
@@ -151,8 +173,8 @@ export default function RecensieZoekerPage() {
           <input
             type="text"
             id="author"
-            value={author}
-            onChange={(e) => setAuthor(e.target.value)}
+            value={bookAuthor}
+            onChange={(e) => setBookAuthor(e.target.value)}
             className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 bg-white text-gray-900 px-4 py-3"
             placeholder="Voer de auteur in..."
           />
@@ -220,15 +242,20 @@ export default function RecensieZoekerPage() {
           {reviews.map((review, index) => (
             <div key={index} className="relative p-4 bg-background-paper rounded-lg border border-background-muted">
               <div className="flex justify-between items-start mb-2">
-                <input
-                  type="text"
-                  value={review.title}
-                  onChange={(e) => updateReview(index, e.target.value, review.text)}
-                  className="flex-grow font-medium text-primary bg-transparent border-none p-0 focus:ring-0"
-                  placeholder="Review titel"
-                />
+                <div className="flex-grow">
+                  <input
+                    type="text"
+                    value={review.title}
+                    onChange={(e) => updateReview(index, e.target.value, review.content)}
+                    className="w-full font-medium text-primary bg-transparent border-none p-0 focus:ring-0"
+                    placeholder="Review titel"
+                  />
+                  <div className="text-xs text-secondary mt-1">
+                    Kwaliteit: {review.quality}/10
+                  </div>
+                </div>
                 <a 
-                  href={review.sourceUrl}
+                  href={review.url}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-xs text-primary-hover hover:underline ml-2 shrink-0"
@@ -237,7 +264,7 @@ export default function RecensieZoekerPage() {
                 </a>
               </div>
               <textarea
-                value={review.text}
+                value={review.content}
                 onChange={(e) => updateReview(index, review.title, e.target.value)}
                 rows={3}
                 className="w-full text-secondary bg-transparent border-none p-0 focus:ring-0"

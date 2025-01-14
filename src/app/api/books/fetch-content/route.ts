@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { rateLimit } from '@/lib/rateLimit';
 import { extract } from '@extractus/article-extractor';
-import Anthropic from '@anthropic-ai/sdk';
+import { Anthropic } from '@anthropic-ai/sdk';
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const anthropic = new Anthropic({
@@ -22,48 +22,42 @@ interface AnalyzedReview {
   quality: number;
 }
 
-async function analyzeAndExtractReviews(urls: string[], bookTitle: string, bookAuthor?: string): Promise<ReviewResult[]> {
-  const analyzedReviews: AnalyzedReview[] = [];
+// Add SSE helper function
+function streamResponse(readable: ReadableStream) {
+  return new Response(readable, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    },
+  });
+}
+
+async function* processUrlsStream(urls: string[], title: string, bookAuthor?: string) {
+  let processedCount = 0;
 
   for (const url of urls) {
     try {
-      // Extract content from URL
       console.log(`\n[DEBUG] Processing URL: ${url}`);
       const article = await extract(url);
       
       if (!article?.content) {
         console.log('[DEBUG] No content extracted from article');
+        yield JSON.stringify({ type: 'progress', url, status: 'skipped', reason: 'no-content' }) + '\n\n';
         continue;
       }
 
-      console.log(`[DEBUG] Article title: ${article.title}`);
-      console.log(`[DEBUG] Raw content length: ${article.content.length} characters`);
-
-      // Clean up HTML and normalize whitespace
       const cleanContent = article.content
         .replace(/<[^>]+>/g, '')
         .replace(/\n+/g, '\n')
         .replace(/\s+/g, ' ')
-        .replace(/\[.*?\]/g, '') // Remove square bracket content
-        .replace(/\(.*?\)/g, '') // Remove parenthetical content
+        .replace(/\[.*?\]/g, '')
+        .replace(/\(.*?\)/g, '')
         .trim();
 
-      // Limit content length more aggressively
       const MAX_CONTENT_LENGTH = 4000;
       const truncatedContent = cleanContent.slice(0, MAX_CONTENT_LENGTH);
-      if (truncatedContent.length < cleanContent.length) {
-        console.log(`[DEBUG] Content truncated from ${cleanContent.length} to ${MAX_CONTENT_LENGTH} characters`);
-      }
 
-      console.log(`[DEBUG] Cleaned content length: ${truncatedContent.length} characters`);
-      console.log('[DEBUG] First 200 chars of cleaned content:', truncatedContent.substring(0, 200));
-
-      // Use Claude to analyze and extract the review
-      console.log('[DEBUG] Sending request to Claude...', {
-        contentLength: truncatedContent.length,
-        modelVersion: 'claude-3-5-haiku-latest'
-      });
-      
       const message = await anthropic.messages.create({
         model: 'claude-3-5-haiku-latest',
         max_tokens: 1000,
@@ -71,11 +65,11 @@ async function analyzeAndExtractReviews(urls: string[], bookTitle: string, bookA
         system: "Je bent een expert in het analyseren van boekrecensies en samenvattingen. Je communiceert ALLEEN in JSON formaat. Gebruik geen natuurlijke taal in je antwoorden. Wees beknopt.",
         messages: [{
           role: 'user',
-          content: `Analyseer de volgende tekst van ${url} over het boek "${bookTitle}"${bookAuthor ? ` van ${bookAuthor}` : ''} en retourneer ALLEEN een JSON object met deze structuur:
+          content: `Analyseer de volgende tekst van ${url} over het boek "${title}"${bookAuthor ? ` van ${bookAuthor}` : ''} en retourneer ALLEEN een JSON object met deze structuur:
 
 {
   "quality": number,      // score 1-10 voor kwaliteit en diepgang
-  "content": string,      // de schone VOLLEDIGE recensietekst zonder headers/footers/etc
+  "content": string,     // de schone VOLLEDIGE recensietekst zonder headers/footers/etc
   "reason": string       // korte uitleg over de kwaliteit van de tekst
 }
 
@@ -99,231 +93,92 @@ BELANGRIJK:
 - Verwijder alle navigatie, headers, footers en advertenties uit de content
 - Doe geen enkele aanpassing aan de content
 - Vertaal de content zo nodig naar het Nederlands
-- Controleer of de tekst echt over "${bookTitle}" gaat${bookAuthor ? ` van ${bookAuthor}` : ''}
+- Controleer of de tekst echt over "${title}" gaat${bookAuthor ? ` van ${bookAuthor}` : ''}
 
 Tekst:
 
-${truncatedContent.slice(0, 8000)}`  // Limit content length to avoid timeouts
+${truncatedContent}`
         }]
-      }).catch(error => {
-        console.error('[DEBUG] Claude API error:', {
-          message: error.message,
-          type: error.type,
-          status: error.status,
-          stack: error.stack
-        });
-        throw error;
       });
 
-      try {
-        // Get the text content from the message
-        const responseText = message.content.find(c => c.type === 'text')?.text;
-        if (!responseText) {
-          console.error('[DEBUG] No text content found in Claude response');
-          continue;
-        }
-
-        console.log('[DEBUG] Received Claude response:', {
-          responseLength: responseText.length,
-          firstChars: responseText.slice(0, 100)
-        });
-
-        const result = JSON.parse(responseText);
-        console.log('[DEBUG] Parsed result:', JSON.stringify(result, null, 2));
-
-        console.log('[DEBUG] Adding content with quality score:', result.quality);
-        analyzedReviews.push({
-          title: article.title || 'Recensie',
-          content: result.content,
-          url: url,
-          quality: result.quality
-        });
-      } catch (parseError) {
-        console.error('[DEBUG] Failed to parse Claude response as JSON:', parseError);
-        // Get the text content again for error logging
-        const errorText = message.content.find(c => c.type === 'text')?.text;
-        console.log('[DEBUG] Raw text that failed to parse:', errorText);
+      const responseText = message.content.find(c => c.type === 'text')?.text;
+      if (!responseText) {
+        yield JSON.stringify({ type: 'progress', url, status: 'error', reason: 'no-response' }) + '\n\n';
+        continue;
       }
+
+      const result = JSON.parse(responseText);
+      processedCount++;
+
+      const review = {
+        title: article.title || 'Recensie',
+        content: result.content,
+        url: url,
+        quality: result.quality
+      };
+
+      yield JSON.stringify({ 
+        type: 'review', 
+        review,
+        processedCount,
+        totalUrls: urls.length
+      }) + '\n\n';
+
     } catch (error) {
       console.error(`[DEBUG] Error processing ${url}:`, error);
-      continue;
+      yield JSON.stringify({ 
+        type: 'progress', 
+        url, 
+        status: 'error',
+        reason: error instanceof Error ? error.message : 'unknown-error'
+      }) + '\n\n';
     }
   }
-
-  // Sort reviews by quality
-  analyzedReviews.sort((a, b) => b.quality - a.quality);
-
-  // Start with high quality threshold
-  let qualityThreshold = 6;
-  let selectedReviews = analyzedReviews.filter(r => r.quality >= qualityThreshold);
-
-  // Lower threshold until we have at least 4 reviews or can't lower anymore
-  while (selectedReviews.length < 4 && qualityThreshold > 1) {
-    qualityThreshold--;
-    console.log(`[DEBUG] Lowering quality threshold to ${qualityThreshold} to get more reviews`);
-    selectedReviews = analyzedReviews.filter(r => r.quality >= qualityThreshold);
-  }
-
-  console.log(`[DEBUG] Final quality threshold: ${qualityThreshold}`);
-  console.log(`[DEBUG] Total reviews found: ${selectedReviews.length}`);
-
-  // Map to final format and return top 5
-  return selectedReviews.slice(0, 5).map(r => ({
-    title: r.title,
-    content: r.content,
-    url: r.url,
-    quality: r.quality
-  }));
 }
 
 export async function POST(req: Request) {
   try {
-    // Rate limiting
     const limiter = await rateLimit.check(req, 5, '10 s');
     
     if (!limiter.success) {
-      return new NextResponse(JSON.stringify({ error: 'Too many requests' }), {
-        status: 429,
-        headers: {
-          'Content-Type': 'application/json',
-          'X-RateLimit-Limit': limiter.limit.toString(),
-          'X-RateLimit-Remaining': limiter.remaining.toString(),
-        },
-      });
+      return new NextResponse(JSON.stringify({ error: 'Too many requests' }), { status: 429 });
     }
 
-    const { urls, title, author } = await req.json();
-    console.log('[DEBUG] Received URLs:', urls);
-    console.log('[DEBUG] Book title:', title);
-    console.log('[DEBUG] Book author:', author);
-
+    const { urls, title, bookAuthor } = await req.json();
+    
     if (!Array.isArray(urls) || urls.length === 0) {
-      return new NextResponse(JSON.stringify({ error: 'Invalid URLs' }), {
-        status: 400,
-      });
+      return new NextResponse(JSON.stringify({ error: 'Invalid URLs' }), { status: 400 });
     }
 
     if (!title) {
-      return new NextResponse(JSON.stringify({ error: 'Book title is required' }), {
-        status: 400,
-      });
+      return new NextResponse(JSON.stringify({ error: 'Book title is required' }), { status: 400 });
     }
 
     if (!ANTHROPIC_API_KEY) {
       console.error('[DEBUG] Missing Claude API key');
-      return new NextResponse(JSON.stringify({ error: 'Claude API key not configured' }), {
-        status: 500,
-      });
+      return new NextResponse(JSON.stringify({ error: 'Claude API key not configured' }), { status: 500 });
     }
 
-    // Process URLs in smaller batches to avoid timeouts
-    const BATCH_SIZE = 3; // Process 3 URLs at a time
-    const urlBatches: string[][] = [];
-    for (let i = 0; i < urls.length; i += BATCH_SIZE) {
-      urlBatches.push(urls.slice(i, i + BATCH_SIZE));
-    }
-
-    let allReviews: ReviewResult[] = [];
-    
-    for (const batchUrls of urlBatches) {
-      try {
-        console.log('[DEBUG] Processing batch:', {
-          urls: batchUrls,
-          batchSize: batchUrls.length,
-          totalProcessedSoFar: allReviews.length
-        });
-
-        // Set a timeout for each batch
-        const timeoutPromise = new Promise<ReviewResult[]>((_, reject) => {
-          setTimeout(() => reject(new Error('Batch timeout')), 25000); // 25 second timeout
-        });
-
-        const batchReviews = await Promise.race([
-          analyzeAndExtractReviews(batchUrls, title, author),
-          timeoutPromise
-        ]);
-
-        console.log('[DEBUG] Batch processed successfully:', {
-          reviewsFound: batchReviews.length,
-          qualityScores: batchReviews.map(r => r.quality)
-        });
-
-        allReviews = allReviews.concat(batchReviews);
-
-        // If we have enough good reviews, we can return early
-        const goodReviews = allReviews.filter(r => r.quality >= 6);
-        if (goodReviews.length >= 4) {
-          console.log('[DEBUG] Found enough good reviews, returning early:', {
-            totalReviews: allReviews.length,
-            goodReviews: goodReviews.length
-          });
-          break;
-        }
-      } catch (batchError) {
-        console.error('[DEBUG] Batch processing error:', {
-          error: batchError instanceof Error ? batchError.message : 'Unknown error',
-          stack: batchError instanceof Error ? batchError.stack : undefined,
-          urls: batchUrls
-        });
-        // Continue with next batch even if this one failed
-        continue;
-      }
-    }
-
-    // Sort and filter all reviews
-    allReviews.sort((a, b) => b.quality - a.quality);
-    
-    // Ensure we have at least some reviews, even if lower quality
-    if (allReviews.length === 0) {
-      console.log('[DEBUG] No reviews found, attempting single URL processing');
-      // Try to get at least one review
-      for (const url of urls) {
+    // Create a stream of processed reviews
+    const stream = new ReadableStream({
+      async start(controller) {
         try {
-          console.log('[DEBUG] Attempting single URL:', url);
-          const singleReview = await analyzeAndExtractReviews([url], title, author);
-          if (singleReview.length > 0) {
-            console.log('[DEBUG] Successfully processed single URL:', {
-              url,
-              quality: singleReview[0].quality
-            });
-            allReviews = allReviews.concat(singleReview);
-            break;
+          for await (const chunk of processUrlsStream(urls, title, bookAuthor)) {
+            controller.enqueue(chunk);
           }
+          controller.close();
         } catch (error) {
-          console.error('[DEBUG] Single URL processing error:', {
-            url,
-            error: error instanceof Error ? error.message : 'Unknown error',
-            stack: error instanceof Error ? error.stack : undefined
-          });
+          controller.error(error);
         }
       }
-    }
-
-    console.log('[DEBUG] Final results:', {
-      totalReviews: allReviews.length,
-      qualityScores: allReviews.map(r => r.quality),
-      urls: allReviews.map(r => r.url)
     });
 
-    return new NextResponse(JSON.stringify({ 
-      reviews: allReviews.slice(0, 5),
-      totalFound: allReviews.length
-    }), {
-      status: 200,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
+    return streamResponse(stream);
   } catch (error) {
     console.error('[DEBUG] Content fetch error:', error);
     return new NextResponse(JSON.stringify({ 
       error: 'Failed to fetch reviews',
       details: error instanceof Error ? error.message : 'Unknown error'
-    }), {
-      status: 500,
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
+    }), { status: 500 });
   }
 } 
