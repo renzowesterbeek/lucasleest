@@ -19,6 +19,7 @@ frontend:
           BRAVE_API_KEY=$BRAVE_API_KEY
           DYNAMODB_TABLE_NAME=$DYNAMODB_TABLE_NAME
           ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY
+          ELEVENLABS_API_KEY=$ELEVENLABS_API_KEY
           EOF
     build:
       commands:
