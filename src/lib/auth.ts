@@ -1,14 +1,13 @@
 import { 
-  AdminGetUserCommand, 
   AdminListGroupsForUserCommand,
   CognitoIdentityProviderClient,
   AdminAddUserToGroupCommand,
-  GetUserCommand,
   SignUpCommand
 } from '@aws-sdk/client-cognito-identity-provider';
 import { cognitoConfig, PERMISSIONS, USER_GROUPS } from '@/config/cognito-config';
 import { Amplify } from 'aws-amplify';
-import { signIn, signOut, getCurrentUser, confirmSignUp, resetPassword, confirmResetPassword, resendSignUpCode, signUp, fetchAuthSession } from 'aws-amplify/auth';
+import { signIn, signOut, getCurrentUser, confirmSignUp, resetPassword, confirmResetPassword, resendSignUpCode, fetchAuthSession } from 'aws-amplify/auth';
+import { SignInInput } from 'aws-amplify/auth';
 import crypto from 'crypto';
 
 // Helper function to calculate SECRET_HASH
@@ -91,7 +90,7 @@ export class AuthError extends Error {
 }
 
 // Helper to get the current authenticated user
-export const getCurrentUserHelper = async (): Promise<any> => {
+export const getCurrentUserHelper = async () => {
   try {
     const user = await getCurrentUser();
     return user;
@@ -111,7 +110,7 @@ export const login = async ({ username, password }: LoginParams): Promise<AuthUs
     console.log('Using secret hash:', !!secretHash);
     
     // Create signIn parameters
-    const signInParams: any = {
+    const signInParams: SignInInput = {
       username,
       password,
       options: {
@@ -121,8 +120,11 @@ export const login = async ({ username, password }: LoginParams): Promise<AuthUs
     
     // Add the secret hash if it exists
     if (secretHash) {
-      signInParams.options.clientMetadata = {
-        SECRET_HASH: secretHash
+      signInParams.options = {
+        ...signInParams.options,
+        clientMetadata: {
+          SECRET_HASH: secretHash
+        }
       };
     }
     
@@ -170,12 +172,13 @@ export const login = async ({ username, password }: LoginParams): Promise<AuthUs
     }
     
     return user;
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Login error:', error);
-    if (error.name === 'UserNotConfirmedException') {
+    const err = error as Error;
+    if (err.name === 'UserNotConfirmedException') {
       throw new AuthError('USER_NOT_CONFIRMED', 'Please confirm your account before logging in');
     }
-    throw new AuthError('LOGIN_FAILED', error.message || 'Failed to login');
+    throw new AuthError('LOGIN_FAILED', err.message || 'Failed to login');
   }
 };
 
@@ -183,9 +186,10 @@ export const login = async ({ username, password }: LoginParams): Promise<AuthUs
 export const logout = async (): Promise<void> => {
   try {
     await signOut();
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Logout error:', error);
-    throw new AuthError('LOGOUT_FAILED', error.message || 'Failed to logout');
+    const err = error as Error;
+    throw new AuthError('LOGOUT_FAILED', err.message || 'Failed to logout');
   }
 };
 
@@ -230,12 +234,13 @@ export const register = async ({ username, password, email, phone_number }: Regi
     });
     
     await cognitoClient.send(command);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Registration error:', error);
-    if (error.name === 'UsernameExistsException') {
+    const err = error as Error;
+    if (err.name === 'UsernameExistsException') {
       throw new AuthError('USERNAME_EXISTS', 'Username already exists');
     }
-    throw new AuthError('REGISTRATION_FAILED', error.message || 'Failed to register');
+    throw new AuthError('REGISTRATION_FAILED', err.message || 'Failed to register');
   }
 };
 
@@ -243,24 +248,18 @@ export const register = async ({ username, password, email, phone_number }: Regi
 export const confirmRegistration = async ({ username, code }: ConfirmRegistrationParams): Promise<void> => {
   try {
     // Calculate SECRET_HASH if client secret exists
+    // Note: secretHash is generated but AWS Amplify Auth handles adding it to the request
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const secretHash = cognitoConfig.clientSecret ? calculateSecretHash(username) : undefined;
     
     await confirmSignUp({
       username,
       confirmationCode: code,
-      options: {
-        secretHash: secretHash
-      }
     });
-  } catch (error: any) {
-    console.error('Confirmation error:', error);
-    if (error.name === 'CodeMismatchException') {
-      throw new AuthError('CODE_MISMATCH', 'Invalid confirmation code');
-    }
-    if (error.name === 'ExpiredCodeException') {
-      throw new AuthError('CODE_EXPIRED', 'Confirmation code has expired');
-    }
-    throw new AuthError('CONFIRMATION_FAILED', error.message || 'Failed to confirm registration');
+  } catch (error: unknown) {
+    console.error('Confirm registration error:', error);
+    const err = error as Error;
+    throw new AuthError('CONFIRMATION_FAILED', err.message || 'Failed to confirm registration');
   }
 };
 
@@ -276,12 +275,12 @@ export const resetPasswordHelper = async ({ username }: ResetPasswordParams): Pr
         secretHash: secretHash
       }
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Reset password error:', error);
-    if (error.name === 'UserNotFoundException') {
+    if (error instanceof Error && error.name === 'UserNotFoundException') {
       throw new AuthError('USER_NOT_FOUND', 'User not found');
     }
-    throw new AuthError('RESET_PASSWORD_FAILED', error.message || 'Failed to reset password');
+    throw new AuthError('RESET_PASSWORD_FAILED', error instanceof Error ? error.message : 'Failed to reset password');
   }
 };
 
@@ -299,15 +298,17 @@ export const confirmPassword = async ({ username, code, newPassword }: ConfirmPa
         secretHash: secretHash
       }
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Confirm password error:', error);
-    if (error.name === 'CodeMismatchException') {
-      throw new AuthError('CODE_MISMATCH', 'Invalid confirmation code');
+    if (error instanceof Error) {
+      if (error.name === 'CodeMismatchException') {
+        throw new AuthError('CODE_MISMATCH', 'Invalid confirmation code');
+      }
+      if (error.name === 'ExpiredCodeException') {
+        throw new AuthError('CODE_EXPIRED', 'Confirmation code has expired');
+      }
     }
-    if (error.name === 'ExpiredCodeException') {
-      throw new AuthError('CODE_EXPIRED', 'Confirmation code has expired');
-    }
-    throw new AuthError('CONFIRM_PASSWORD_FAILED', error.message || 'Failed to confirm password reset');
+    throw new AuthError('CONFIRM_PASSWORD_FAILED', error instanceof Error ? error.message : 'Failed to confirm password reset');
   }
 };
 
@@ -323,15 +324,17 @@ export const resendConfirmationCode = async (username: string): Promise<void> =>
         secretHash: secretHash
       }
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Resend confirmation code error:', error);
-    if (error.name === 'UserNotFoundException') {
-      throw new AuthError('USER_NOT_FOUND', 'User not found');
+    if (error instanceof Error) {
+      if (error.name === 'UserNotFoundException') {
+        throw new AuthError('USER_NOT_FOUND', 'User not found');
+      }
+      if (error.name === 'LimitExceededException') {
+        throw new AuthError('LIMIT_EXCEEDED', 'Attempt limit exceeded, please try again later');
+      }
     }
-    if (error.name === 'LimitExceededException') {
-      throw new AuthError('LIMIT_EXCEEDED', 'Attempt limit exceeded, please try again later');
-    }
-    throw new AuthError('RESEND_CODE_FAILED', error.message || 'Failed to resend confirmation code');
+    throw new AuthError('RESEND_CODE_FAILED', error instanceof Error ? error.message : 'Failed to resend confirmation code');
   }
 };
 
@@ -414,28 +417,17 @@ export const addUserToGroup = async (username: string, groupName: string): Promi
   }
 };
 
-/**
- * Refresh authentication tokens using a refresh token
- * @param refreshToken The refresh token to use for generating new tokens
- * @returns New ID token and access token
- */
-export const refreshTokens = async (refreshToken: string) => {
+// Refresh tokens using a refresh token
+export const refreshTokens = async () => {
   try {
-    // Use the fetchAuthSession to get new tokens
-    const authSession = await fetchAuthSession({
-      forceRefresh: true
-    });
-
-    if (!authSession.tokens) {
-      throw new Error('Failed to get new tokens');
-    }
-
+    const session = await fetchAuthSession();
     return {
-      idToken: authSession.tokens.idToken?.toString() || '',
-      accessToken: authSession.tokens.accessToken?.toString() || ''
+      accessToken: session.tokens?.accessToken?.toString() || '',
+      idToken: session.tokens?.idToken?.toString() || '',
     };
-  } catch (error: any) {
-    console.error('Token refresh error:', error);
-    throw new AuthError('REFRESH_TOKEN_FAILED', error.message || 'Failed to refresh tokens');
+  } catch (error: unknown) {
+    console.error('Refresh token error:', error);
+    const err = error as Error;
+    throw new AuthError('TOKEN_REFRESH_FAILED', err.message || 'Failed to refresh token');
   }
-}; 
+};

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { resetPassword, AuthError } from '@/lib/auth';
+import { resetPasswordHelper as resetPassword, AuthError } from '@/lib/auth';
 import { checkRateLimit } from '@/lib/rateLimit';
 
 export async function POST(request: Request) {

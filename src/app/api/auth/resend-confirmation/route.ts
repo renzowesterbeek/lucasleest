@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { AuthError } from '@/lib/auth';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { cognitoConfig } from '@/config/cognito-config';
 import crypto from 'crypto';
@@ -69,19 +68,21 @@ export async function POST(request: Request) {
     await client.send(resendCommand);
     
     return NextResponse.json({ success: true });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Resend confirmation error:', error);
     
-    if (error.name === 'UserNotFoundException') {
-      // For security reasons, don't reveal that a user doesn't exist
-      return NextResponse.json({ success: true });
-    }
-    
-    if (error.name === 'LimitExceededException') {
-      return NextResponse.json(
-        { error: 'Too many attempts. Please try again later.' },
-        { status: 429 }
-      );
+    if (error instanceof Error) {
+      if (error.name === 'UserNotFoundException') {
+        // For security reasons, don't reveal that a user doesn't exist
+        return NextResponse.json({ success: true });
+      }
+      
+      if (error.name === 'LimitExceededException') {
+        return NextResponse.json(
+          { error: 'Too many attempts. Please try again later.' },
+          { status: 429 }
+        );
+      }
     }
     
     return NextResponse.json(

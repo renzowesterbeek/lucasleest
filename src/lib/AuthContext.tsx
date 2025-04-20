@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { Amplify } from 'aws-amplify';
 import { signOut, fetchUserAttributes, getCurrentUser } from 'aws-amplify/auth';
 import { awsConfig } from './auth/awsConfig';
@@ -68,52 +68,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Compute isAdmin from user groups
   const isAdmin = user?.groups?.includes(USER_GROUPS.ADMIN) || false;
 
-  // Initialize Amplify and Cognito client on component mount (client-side only)
-  useEffect(() => {
-    try {
-      if (!userPoolId || !clientId) {
-        setConfigError('AWS Cognito is not properly configured. Please check your environment variables.');
-        setIsInitializing(false);
-        return;
-      }
-
-      // Log configuration for debugging
-      console.log('Cognito configuration:', {
-        region,
-        userPoolId,
-        clientId,
-        hasClientSecret: !!clientSecret,
-        clientSecretLength: clientSecret?.length
-      });
-
-      // Configure Amplify
-      Amplify.configure(awsConfig);
-      console.log('Amplify configured');
-      setIsAmplifyConfigured(true);
-      
-      // Initialize the Cognito client (only in browser context)
-      if (typeof window !== 'undefined') {
-        const client = new CognitoIdentityProviderClient({ 
-          region: region 
-        });
-        setCognitoClient(client);
-        console.log('Cognito client initialized');
-      }
-    } catch (error) {
-      console.error('Error configuring auth services:', error);
-      setConfigError('Failed to initialize authentication services.');
-    }
-  }, [region, userPoolId, clientId]);
-
-  // Check authentication status after services are configured
-  useEffect(() => {
-    if (isAmplifyConfigured) {
-      checkAuthState();
-    }
-  }, [isAmplifyConfigured]);
-
-  // Function to check current auth state
-  const checkAuthState = async () => {
+  // Function to check current auth state (defined using useCallback to avoid dependency issues)
+  const checkAuthState = useCallback(async () => {
     try {
       setIsInitializing(true);
       
@@ -142,7 +98,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
             
             // Also try to fetch user attributes from Amplify for more details
             try {
-              const currentUser = await getCurrentUser();
+              // Remove the unused currentUser assignment
+              await getCurrentUser();
               const attributes = await fetchUserAttributes();
               
               // Update user with additional details
@@ -196,7 +153,51 @@ export function AuthProvider({ children }: AuthProviderProps) {
     } finally {
       setIsInitializing(false);
     }
-  };
+  }, [configError]);
+
+  // Initialize Amplify and Cognito client on component mount (client-side only)
+  useEffect(() => {
+    try {
+      if (!userPoolId || !clientId) {
+        setConfigError('AWS Cognito is not properly configured. Please check your environment variables.');
+        setIsInitializing(false);
+        return;
+      }
+
+      // Log configuration for debugging
+      console.log('Cognito configuration:', {
+        region,
+        userPoolId,
+        clientId,
+        hasClientSecret: !!clientSecret,
+        clientSecretLength: clientSecret?.length
+      });
+
+      // Configure Amplify
+      Amplify.configure(awsConfig);
+      console.log('Amplify configured');
+      setIsAmplifyConfigured(true);
+      
+      // Initialize the Cognito client (only in browser context)
+      if (typeof window !== 'undefined') {
+        const client = new CognitoIdentityProviderClient({ 
+          region: region 
+        });
+        setCognitoClient(client);
+        console.log('Cognito client initialized');
+      }
+    } catch (error) {
+      console.error('Error configuring auth services:', error);
+      setConfigError('Failed to initialize authentication services.');
+    }
+  }, [region, userPoolId, clientId, clientSecret]);
+
+  // Check authentication status after services are configured
+  useEffect(() => {
+    if (isAmplifyConfigured) {
+      checkAuthState();
+    }
+  }, [isAmplifyConfigured, checkAuthState]);
 
   // Login function using CognitoIdentityProviderClient
   const login = async (username: string, password: string) => {

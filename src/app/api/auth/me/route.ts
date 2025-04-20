@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import * as jose from 'jose';
-import { cognitoConfig, USER_GROUPS } from '@/config/cognito-config';
+import { cognitoConfig } from '@/config/cognito-config';
 import { getUserGroups, getUserPermissions } from '@/lib/auth';
 import { AdminGetUserCommand, CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 

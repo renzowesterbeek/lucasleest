@@ -28,32 +28,36 @@ export default function LoginPage() {
     
     try {
       // First, perform client-side authentication with Cognito
-      const response = await login(username, password);
+      await login(username, password);
       
       // If login is successful, redirect to admin dashboard
       router.push('/admin');
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Login error:', error);
       
       let errorMessage = 'Login failed. Please check your credentials.';
       
       // Handle known Cognito error codes
-      if (error.name === 'UserNotConfirmedException') {
-        errorMessage = 'Please confirm your account before logging in.';
-        setError({
-          message: errorMessage,
-          userConfirmationRequired: true,
-          username
-        });
-      } else if (error.name === 'NotAuthorizedException') {
-        errorMessage = 'Incorrect username or password.';
-        setError({ message: errorMessage });
-      } else if (error.name === 'UserNotFoundException') {
-        errorMessage = 'User does not exist.';
-        setError({ message: errorMessage });
-      } else if (error.message) {
-        errorMessage = error.message;
-        setError({ message: errorMessage });
+      if (error instanceof Error) {
+        if (error.name === 'UserNotConfirmedException') {
+          errorMessage = 'Please confirm your account before logging in.';
+          setError({
+            message: errorMessage,
+            userConfirmationRequired: true,
+            username
+          });
+        } else if (error.name === 'NotAuthorizedException') {
+          errorMessage = 'Incorrect username or password.';
+          setError({ message: errorMessage });
+        } else if (error.name === 'UserNotFoundException') {
+          errorMessage = 'User does not exist.';
+          setError({ message: errorMessage });
+        } else if (error.message) {
+          errorMessage = error.message;
+          setError({ message: errorMessage });
+        } else {
+          setError({ message: errorMessage });
+        }
       } else {
         setError({ message: errorMessage });
       }
@@ -97,7 +101,7 @@ export default function LoginPage() {
           username
         });
       }
-    } catch (error) {
+    } catch {
       setError({ 
         message: 'Failed to resend confirmation code',
         username

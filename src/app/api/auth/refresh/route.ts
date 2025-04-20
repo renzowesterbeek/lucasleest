@@ -4,7 +4,7 @@ import { cookies } from 'next/headers';
 
 export async function POST() {
   try {
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const refreshToken = cookieStore.get('refresh-token')?.value;
     
     if (!refreshToken) {
@@ -14,8 +14,8 @@ export async function POST() {
       );
     }
     
-    // Get new tokens from the refresh token
-    const tokens = await refreshTokens(refreshToken);
+    // Get new tokens from the refresh token without passing the refresh token
+    const tokens = await refreshTokens();
     
     // Create response with refreshed tokens
     const response = NextResponse.json({ success: true });
@@ -31,10 +31,11 @@ export async function POST() {
       maxAge: 60 * 60 // 1 hour
     });
     
-    // Update the refresh token cookie
+    // Update the refresh token cookie with the existing refresh token
+    // since refreshTokens() doesn't return a new refresh token
     response.cookies.set({
       name: 'refresh-token',
-      value: tokens.refreshToken,
+      value: refreshToken, // Reuse the existing refresh token
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',

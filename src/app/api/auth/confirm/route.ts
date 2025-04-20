@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { AuthError } from '@/lib/auth';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { cognitoConfig } from '@/config/cognito-config';
 import crypto from 'crypto';
@@ -71,33 +70,40 @@ export async function POST(request: Request) {
     await client.send(confirmCommand);
     
     return NextResponse.json({ success: true });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Confirmation error:', error);
     
     // Return appropriate error based on error name
-    if (error.name === 'CodeMismatchException') {
+    if (error instanceof Error) {
+      if (error.name === 'CodeMismatchException') {
+        return NextResponse.json(
+          { error: 'Invalid confirmation code' },
+          { status: 400 }
+        );
+      }
+      
+      if (error.name === 'ExpiredCodeException') {
+        return NextResponse.json(
+          { error: 'Confirmation code has expired' },
+          { status: 400 }
+        );
+      }
+      
+      if (error.name === 'UserNotFoundException') {
+        return NextResponse.json(
+          { error: 'User not found' },
+          { status: 404 }
+        );
+      }
+      
       return NextResponse.json(
-        { error: 'Invalid confirmation code' },
-        { status: 400 }
-      );
-    }
-    
-    if (error.name === 'ExpiredCodeException') {
-      return NextResponse.json(
-        { error: 'Confirmation code has expired' },
-        { status: 400 }
-      );
-    }
-    
-    if (error.name === 'UserNotFoundException') {
-      return NextResponse.json(
-        { error: 'User not found' },
-        { status: 404 }
+        { error: error.message || 'Confirmation failed. Please try again later.' },
+        { status: 500 }
       );
     }
     
     return NextResponse.json(
-      { error: error.message || 'Confirmation failed. Please try again later.' },
+      { error: 'Confirmation failed. Please try again later.' },
       { status: 500 }
     );
   }

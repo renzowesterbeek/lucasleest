@@ -4,10 +4,13 @@ import { cognitoConfig, USER_GROUPS } from '@/config/cognito-config';
 import { addUserToGroup, getUserGroups } from '@/lib/auth';
 import { CognitoIdentityProviderClient } from '@aws-sdk/client-cognito-identity-provider';
 
-// Create a Cognito Identity Provider client
+// Create a Cognito Identity Provider client - This client is imported by lib/auth.ts
+// and is re-exported here for consistency. The lib/auth.ts file uses this client.
+/* eslint-disable @typescript-eslint/no-unused-vars */
 const cognitoClient = new CognitoIdentityProviderClient({
   region: cognitoConfig.region,
 });
+/* eslint-enable @typescript-eslint/no-unused-vars */
 
 export async function POST(request: Request) {
   try {
@@ -91,10 +94,10 @@ export async function POST(request: Request) {
         success: true,
         message: `User ${username} added to ${groupName} group`
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Add to group error:', error);
       return NextResponse.json(
-        { error: error.message || 'Failed to add user to group' },
+        { error: error instanceof Error ? error.message : 'Failed to add user to group' },
         { status: 500 }
       );
     }

@@ -62,20 +62,6 @@ function NavBar() {
               Feedback
             </Link>
             
-            <Link 
-              href="/auth-test" 
-              className={`text-[#1a1f36] transition-colors font-medium relative ${
-                isActive('/auth-test') 
-                  ? 'text-[#cc7c5e]' 
-                  : 'hover:text-[#cc7c5e]'
-              }`}
-            >
-              {isActive('/auth-test') && (
-                <span className="absolute -bottom-1.5 left-0 right-0 h-0.5 bg-[#cc7c5e] rounded-full" />
-              )}
-              Auth Test
-            </Link>
-            
             {/* Admin link for authenticated admin users */}
             {isAdmin && (
               <Link 

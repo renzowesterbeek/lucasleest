@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
 export default function RegisterPage() {
@@ -11,7 +10,6 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [registered, setRegistered] = useState(false);
-  const router = useRouter();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,8 +35,8 @@ export default function RegisterPage() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          username: email, // Use email as username
           email,
+          username: email,
           password,
         }),
       });
@@ -50,7 +48,7 @@ export default function RegisterPage() {
       } else {
         setError(data.error || 'Registration failed');
       }
-    } catch (error) {
+    } catch {
       setError('Something went wrong. Please try again.');
     } finally {
       setIsLoading(false);
@@ -66,7 +64,7 @@ export default function RegisterPage() {
               Registration Complete
             </h2>
             <p className="mt-2 text-center text-sm text-gray-600">
-              We've sent a confirmation code to your email.
+              We&apos;ve sent a confirmation code to your email.
             </p>
           </div>
           

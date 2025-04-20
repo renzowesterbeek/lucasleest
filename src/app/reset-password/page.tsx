@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useState, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 
-export default function ResetPasswordPage() {
+function ResetPasswordForm() {
   const [username, setUsername] = useState('');
   const [code, setCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -12,7 +12,6 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isReset, setIsReset] = useState(false);
-  const router = useRouter();
   const searchParams = useSearchParams();
 
   useEffect(() => {
@@ -26,36 +25,20 @@ export default function ResetPasswordPage() {
     e.preventDefault();
     setError(null);
     
-    // Form validation
-    if (!username) {
-      setError('Email is required');
-      return;
-    }
-    
-    if (!code) {
-      setError('Verification code is required');
-      return;
-    }
-    
-    if (!newPassword) {
-      setError('New password is required');
-      return;
-    }
-    
     if (newPassword !== confirmPassword) {
       setError('Passwords do not match');
       return;
     }
     
-    if (newPassword.length < 8) {
-      setError('Password must be at least 8 characters long');
+    if (!username || !code || !newPassword) {
+      setError('All fields are required');
       return;
     }
     
     setIsLoading(true);
     
     try {
-      const response = await fetch('/api/auth/confirm-password', {
+      const response = await fetch('/api/auth/reset-password/confirm', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -74,7 +57,7 @@ export default function ResetPasswordPage() {
       } else {
         setError(data.error || 'Password reset failed');
       }
-    } catch (error) {
+    } catch {
       setError('Something went wrong. Please try again.');
     } finally {
       setIsLoading(false);
@@ -107,7 +90,7 @@ export default function ResetPasswordPage() {
       } else {
         setError(data.error || 'Failed to resend verification code');
       }
-    } catch (error) {
+    } catch {
       setError('Something went wrong. Please try again.');
     } finally {
       setIsLoading(false);
@@ -251,5 +234,30 @@ export default function ResetPasswordPage() {
         </form>
       </div>
     </div>
+  );
+}
+
+function LoadingFallback() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-lg shadow">
+        <div className="text-center">
+          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
+            Loading
+          </h2>
+          <p className="mt-2 text-center text-sm text-gray-600">
+            Please wait...
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function ResetPasswordPage() {
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <ResetPasswordForm />
+    </Suspense>
   );
 } 
