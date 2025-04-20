@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
 import { rateLimit } from '@/lib/rateLimit';
 
+// Configuration for Brave Search API
 const BRAVE_API_KEY = process.env.BRAVE_API_KEY;
 const BRAVE_SEARCH_URL = 'https://api.search.brave.com/res/v1/web/search';
 
+// Type definitions for Brave Search API responses
 interface BraveSearchResult {
   title: string;
   description?: string;
@@ -18,7 +20,10 @@ interface BraveSearchResponse {
   };
 }
 
-// Function to clean up HTML tags and entities
+/**
+ * Cleans HTML tags and entities from text content
+ * Used to sanitize search results before processing
+ */
 function cleanHtml(text: string): string {
   return text
     .replace(/<[^>]+>/g, '') // Remove HTML tags
@@ -34,7 +39,7 @@ function cleanHtml(text: string): string {
 
 export async function POST(req: Request) {
   try {
-    // Rate limiting
+    // Step 1: Rate limiting to prevent abuse
     const limiter = await rateLimit.check(req, 10, '10 s');
     
     if (!limiter.success) {
@@ -48,6 +53,7 @@ export async function POST(req: Request) {
       });
     }
 
+    // Step 2: Validate input parameters
     const { title, author } = await req.json();
 
     if (!title || typeof title !== 'string') {
@@ -62,7 +68,7 @@ export async function POST(req: Request) {
       });
     }
 
-    // Search for Dutch book reviews
+    // Step 3: Construct and execute search query
     const searchQuery = `${title} door ${author || ''} boek`;
     console.log('[DEBUG] Search query:', searchQuery);
     const searchUrl = `${BRAVE_SEARCH_URL}?q=${encodeURIComponent(searchQuery)}&language=nl`;
@@ -78,10 +84,11 @@ export async function POST(req: Request) {
       throw new Error('Failed to fetch from Brave Search');
     }
 
+    // Step 4: Process and filter search results
     const searchData: BraveSearchResponse = await searchResponse.json();
     
     // Extract and format search results
-    const searchResults = searchData.web?.results?.slice(0, 15)
+    const searchResults = searchData.web?.results?.slice(0, 15)  // Limit to top 15 results
       .map(result => ({
         title: cleanHtml(result.title || 'Naamloze Recensie'),
         description: cleanHtml(result.description || result.meta_description || ''),
@@ -98,16 +105,20 @@ export async function POST(req: Request) {
                text.includes('samenvatting') || text.includes('boek');
       }) || [];
 
+    // Step 5: Return filtered results
     return new NextResponse(JSON.stringify({ searchResults }), {
-      status: 200,
       headers: {
         'Content-Type': 'application/json',
       },
     });
+
   } catch (error) {
-    console.error('Book search error:', error);
+    console.error('Review search error:', error);
     return new NextResponse(JSON.stringify({ error: 'Failed to search for reviews' }), {
       status: 500,
+      headers: {
+        'Content-Type': 'application/json',
+      },
     });
   }
 } 

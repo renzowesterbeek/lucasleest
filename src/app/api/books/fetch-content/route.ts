@@ -3,11 +3,13 @@ import { rateLimit } from '@/lib/rateLimit';
 import { extract } from '@extractus/article-extractor';
 import Anthropic from '@anthropic-ai/sdk';
 
+// Configuration for Claude AI
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 const anthropic = new Anthropic({
   apiKey: ANTHROPIC_API_KEY
 });
 
+// Type definitions for review analysis results
 interface ReviewResult {
   title: string;
   content: string;
@@ -22,12 +24,16 @@ interface AnalyzedReview {
   quality: number;
 }
 
+/**
+ * Analyzes and extracts reviews from a list of URLs
+ * Uses Claude AI to evaluate content quality and relevance
+ */
 async function analyzeAndExtractReviews(urls: string[], bookTitle: string, bookAuthor?: string): Promise<ReviewResult[]> {
   const analyzedReviews: AnalyzedReview[] = [];
 
   for (const url of urls) {
     try {
-      // Extract content from URL
+      // Step 1: Extract content from URL using article-extractor
       console.log(`\n[DEBUG] Processing URL: ${url}`);
       const article = await extract(url);
       
@@ -39,17 +45,17 @@ async function analyzeAndExtractReviews(urls: string[], bookTitle: string, bookA
       console.log(`[DEBUG] Article title: ${article.title}`);
       console.log(`[DEBUG] Raw content length: ${article.content.length} characters`);
 
-      // Clean up HTML and normalize whitespace
+      // Step 2: Clean and normalize the extracted content
       const cleanContent = article.content
-        .replace(/<[^>]+>/g, '')
-        .replace(/\n+/g, '\n')
-        .replace(/\s+/g, ' ')
+        .replace(/<[^>]+>/g, '')  // Remove HTML tags
+        .replace(/\n+/g, '\n')    // Normalize newlines
+        .replace(/\s+/g, ' ')     // Normalize whitespace
         .trim();
 
       console.log(`[DEBUG] Cleaned content length: ${cleanContent.length} characters`);
       console.log('[DEBUG] First 200 chars of cleaned content:', cleanContent.substring(0, 200));
 
-      // Use Claude to analyze and extract the review
+      // Step 3: Use Claude AI to analyze the review content
       console.log('[DEBUG] Sending request to Claude...');
       
       const message = await anthropic.messages.create({
@@ -95,64 +101,44 @@ ${cleanContent}`
       });
 
       try {
-        // Get the text content from the message
+        // Step 4: Process Claude's response
         const responseText = message.content.find(c => c.type === 'text')?.text;
         if (!responseText) {
-          console.error('[DEBUG] No text content found in Claude response');
+          console.log('[DEBUG] No text content in Claude response');
           continue;
         }
 
-        const result = JSON.parse(responseText);
-        console.log('[DEBUG] Parsed result:', JSON.stringify(result, null, 2));
-
-        console.log('[DEBUG] Adding content with quality score:', result.quality);
-        analyzedReviews.push({
-          title: article.title || 'Recensie',
-          content: result.content,
-          url: url,
-          quality: result.quality
-        });
+        // Parse the JSON response from Claude
+        const analysis = JSON.parse(responseText);
+        
+        // Step 5: Add the analyzed review to results if it meets quality criteria
+        if (analysis.quality >= 6) {  // Only include reviews with quality score >= 6
+          analyzedReviews.push({
+            title: article.title || 'Naamloze Recensie',
+            content: analysis.content,
+            url,
+            quality: analysis.quality
+          });
+        }
       } catch (parseError) {
-        console.error('[DEBUG] Failed to parse Claude response as JSON:', parseError);
-        // Get the text content again for error logging
-        const errorText = message.content.find(c => c.type === 'text')?.text;
-        console.log('[DEBUG] Raw text that failed to parse:', errorText);
+        console.error('[DEBUG] Failed to parse Claude response:', parseError);
+        continue;
       }
     } catch (error) {
-      console.error(`[DEBUG] Error processing ${url}:`, error);
+      console.error(`[DEBUG] Error processing URL ${url}:`, error);
       continue;
     }
   }
 
-  // Sort reviews by quality
-  analyzedReviews.sort((a, b) => b.quality - a.quality);
-
-  // Start with high quality threshold
-  let qualityThreshold = 6;
-  let selectedReviews = analyzedReviews.filter(r => r.quality >= qualityThreshold);
-
-  // Lower threshold until we have at least 4 reviews or can't lower anymore
-  while (selectedReviews.length < 4 && qualityThreshold > 1) {
-    qualityThreshold--;
-    console.log(`[DEBUG] Lowering quality threshold to ${qualityThreshold} to get more reviews`);
-    selectedReviews = analyzedReviews.filter(r => r.quality >= qualityThreshold);
-  }
-
-  console.log(`[DEBUG] Final quality threshold: ${qualityThreshold}`);
-  console.log(`[DEBUG] Total reviews found: ${selectedReviews.length}`);
-
-  // Map to final format and return top 5
-  return selectedReviews.slice(0, 5).map(r => ({
-    title: r.title,
-    content: r.content,
-    url: r.url,
-    quality: r.quality
-  }));
+  // Step 6: Sort reviews by quality and return top results
+  return analyzedReviews
+    .sort((a, b) => b.quality - a.quality)
+    .slice(0, 5);  // Return top 5 highest quality reviews
 }
 
 export async function POST(req: Request) {
   try {
-    // Rate limiting
+    // Step 1: Rate limiting
     const limiter = await rateLimit.check(req, 5, '10 s');
     
     if (!limiter.success) {
@@ -166,46 +152,29 @@ export async function POST(req: Request) {
       });
     }
 
+    // Step 2: Validate input parameters
     const { urls, title, author } = await req.json();
-    console.log('[DEBUG] Received URLs:', urls);
-    console.log('[DEBUG] Book title:', title);
-    console.log('[DEBUG] Book author:', author);
 
-    if (!Array.isArray(urls) || urls.length === 0) {
-      return new NextResponse(JSON.stringify({ error: 'Invalid URLs' }), {
+    if (!urls?.length || !title) {
+      return new NextResponse(JSON.stringify({ error: 'Invalid parameters' }), {
         status: 400,
       });
     }
 
-    if (!title) {
-      return new NextResponse(JSON.stringify({ error: 'Book title is required' }), {
-        status: 400,
-      });
-    }
-
-    if (!ANTHROPIC_API_KEY) {
-      console.error('[DEBUG] Missing Claude API key');
-      return new NextResponse(JSON.stringify({ error: 'Claude API key not configured' }), {
-        status: 500,
-      });
-    }
-
-    // Process all URLs and get the best reviews
+    // Step 3: Analyze and extract reviews
     const reviews = await analyzeAndExtractReviews(urls, title, author);
-    console.log('[DEBUG] Returning reviews:', JSON.stringify(reviews, null, 2));
 
+    // Step 4: Return results
     return new NextResponse(JSON.stringify({ reviews }), {
-      status: 200,
       headers: {
         'Content-Type': 'application/json',
       },
     });
+
   } catch (error) {
-    console.error('[DEBUG] Content fetch error:', error);
-    return new NextResponse(JSON.stringify({ 
-      reviews: []
-    }), {
-      status: 200,
+    console.error('Content extraction error:', error);
+    return new NextResponse(JSON.stringify({ error: 'Failed to extract content' }), {
+      status: 500,
       headers: {
         'Content-Type': 'application/json',
       },

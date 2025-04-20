@@ -1,7 +1,7 @@
 # RecensieZoeker Feature Documentation
 
 ## Overview
-The RecensieZoeker (Review Finder) is a feature integrated into the main admin workflow that helps administrators find and extract book reviews and summaries from various Dutch websites. It uses the Brave Search API to find relevant pages and Claude AI to analyze and extract high-quality content.
+The RecensieZoeker (Review Finder) is a feature integrated into the main admin workflow that helps administrators find and extract book reviews and summaries from various Dutch websites. It uses the Brave Search API to find relevant pages and Claude AI to analyze and extract high-quality content. The system also includes podcast generation capabilities and feedback tracking.
 
 ## Components
 
@@ -14,6 +14,9 @@ The RecensieZoeker (Review Finder) is a feature integrated into the main admin w
   - Shows source URLs for verification
   - Color-coded quality indicators (red < 6, yellow 6-7, green ≥ 8)
   - Fallback to manual review entry when needed
+  - Dynamic audio player integration
+  - Feedback tracking system
+  - Podcast generation capabilities
 
 ### 2. Search API (`/api/books/reviews/route.ts`)
 - Handles the initial search for review pages
@@ -71,7 +74,12 @@ The RecensieZoeker (Review Finder) is a feature integrated into the main admin w
      - Remove unwanted reviews
      - Add manual reviews if needed
      - View quality scores and source links
-   - Reviews are used in the podcast generation process
+
+5. **Podcast Generation**
+   - Admin can generate a script from selected reviews
+   - System creates an audio podcast from the script
+   - Audio player integration for preview
+   - Feedback tracking system for user engagement
 
 ## Quality Scoring Criteria
 
@@ -105,9 +113,23 @@ The RecensieZoeker (Review Finder) is a feature integrated into the main admin w
 - Returns empty review list on errors
 - Provides user-friendly error messages
 
+### Frontend Technologies
+- Next.js with TypeScript
+- React for UI components
+- Tailwind CSS for styling
+- Dynamic imports for audio player
+- Client-side state management
+
+### Data Models
+- Review: Contains text, title, source URL, and quality score
+- Podcast: Includes ID, title, author, audio link, and feedback metrics
+- SearchResult: Contains URL for review sources
+- ReviewResponse: Structured review data with quality scoring
+
 ## Maintenance Notes
 
 - Review quality thresholds can be adjusted in `fetch-content/route.ts`
 - Search keywords can be modified in `reviews/route.ts`
 - Claude prompt can be tuned in `fetch-content/route.ts`
-- Frontend styling uses Tailwind CSS classes 
+- Frontend styling uses Tailwind CSS classes
+- Audio player component is dynamically imported to avoid SSR issues 

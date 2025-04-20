@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { FileUpload } from '@/components/FileUpload';
 import dynamic from 'next/dynamic';
+import { useAuth } from '@/lib/AuthContext';
+import { useRouter } from 'next/navigation';
 
 // Dynamically import AudioPlayer with no SSR
 const AudioPlayer = dynamic(
@@ -10,11 +12,12 @@ const AudioPlayer = dynamic(
   { ssr: false }
 );
 
+// Interface definitions for the RecensieZoeker feature
 interface Review {
-  text: string;
-  title?: string;
-  sourceUrl?: string;
-  quality?: number;
+  text: string;          // The actual review content
+  title?: string;        // Optional title for the review
+  sourceUrl?: string;    // URL where the review was found
+  quality?: number;      // Quality score (1-10) assigned by Claude
 }
 
 interface Podcast {
@@ -25,6 +28,10 @@ interface Podcast {
   playCount: number;
   positiveFeedback: number;
   negativeFeedback: number;
+}
+
+interface PerplexitySummary {
+  content: string;
 }
 
 interface SearchResult {
@@ -51,28 +58,28 @@ const FeedbackBar = ({ positive = 0, negative = 0 }: { positive: number; negativ
   const positivePercentage = total > 0 ? Math.round((positive / total) * 100) : 50;
 
   return (
-    <div className="flex items-center gap-2">
-      <div className="flex-grow h-2 rounded-full overflow-hidden bg-[#dad5dd]">
+    <div className="flex items-center gap-3 bg-white p-3 rounded-lg shadow-sm">
+      <div className="flex-grow h-2.5 rounded-full overflow-hidden bg-gray-100">
         <div className="h-full flex">
           <div 
-            className="h-full bg-green-500 transition-all duration-300"
+            className="h-full bg-emerald-500 transition-all duration-300"
             style={{ width: `${positivePercentage}%` }}
           />
           <div 
-            className="h-full bg-red-500 transition-all duration-300"
+            className="h-full bg-rose-500 transition-all duration-300"
             style={{ width: `${100 - positivePercentage}%` }}
           />
         </div>
       </div>
-      <div className="flex gap-3 text-sm font-medium min-w-[80px] justify-end">
-        <span className="flex items-center gap-1 text-green-600">
-          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <div className="flex gap-4 text-sm font-medium min-w-[100px] justify-end">
+        <span className="flex items-center gap-2 text-emerald-600">
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
           </svg>
           {positive}
         </span>
-        <span className="flex items-center gap-1 text-red-600">
-          <svg className="w-4 h-4 rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <span className="flex items-center gap-2 text-rose-600">
+          <svg className="w-5 h-5 rotate-180" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
           </svg>
           {negative}
@@ -83,10 +90,17 @@ const FeedbackBar = ({ positive = 0, negative = 0 }: { positive: number; negativ
 };
 
 export default function PodcastAdminPage() {
+  const router = useRouter();
+  const { isAuthenticated, isInitializing, isAdmin } = useAuth();
+  const formRef = useRef<HTMLFormElement>(null);
+
+  // State management - MOVED ALL STATE HOOKS BEFORE CONDITIONAL RETURNS
+  const [summary, setSummary] = useState<string | null>(null);
+  const [editedSummary, setEditedSummary] = useState<string | null>(null);
+  const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
   const [title, setTitle] = useState('');
   const [author, setAuthor] = useState('');
   const [libraryLink, setLibraryLink] = useState('');
-  const [reviews, setReviews] = useState<Review[]>([{ text: '' }]);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [podcasts, setPodcasts] = useState<Podcast[]>([]);
@@ -100,9 +114,125 @@ export default function PodcastAdminPage() {
   const [coverFile, setCoverFile] = useState<File>();
   const [currentPodcastId, setCurrentPodcastId] = useState<string | null>(null);
   const [currentBookTitle, setCurrentBookTitle] = useState<string | null>(null);
-  const [isSearchingReviews, setIsSearchingReviews] = useState(false);
-  const [isFetchingReviews, setIsFetchingReviews] = useState(false);
-  const formRef = useRef<HTMLFormElement>(null);
+
+  // Define fetchPodcasts function before using it
+  const fetchPodcasts = async () => {
+    try {
+      // First fetch all books
+      const booksResponse = await fetch('/api/books', {
+        headers: {
+          'Cache-Control': 'no-cache',
+        }
+      });
+      
+      if (!booksResponse.ok) {
+        const errorData = await booksResponse.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP error! status: ${booksResponse.status}`);
+      }
+      
+      const booksData = await booksResponse.json();
+      
+      if (!Array.isArray(booksData.books)) {
+        throw new Error('Invalid response format');
+      }
+
+      // Then fetch analytics data for play counts
+      const analyticsResponse = await fetch('/api/analytics/stats', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          event: 'audio_played',
+        }),
+      });
+
+      if (!analyticsResponse.ok) {
+        throw new Error('Failed to fetch analytics data');
+      }
+
+      const analyticsData = await analyticsResponse.json();
+      const playCountsByBook = analyticsData.stats || {};
+
+      const processedPodcasts = booksData.books.map((book) => ({
+        id: book.id,
+        title: book.title,
+        author: book.author,
+        audioLink: book.audioLink,
+        playCount: playCountsByBook[book.id] || 0,
+        positiveFeedback: Number(book.positiveFeedback) || 0,
+        negativeFeedback: Number(book.negativeFeedback) || 0
+      }));
+
+      console.log('Processed podcasts:', processedPodcasts);
+
+      setPodcasts(processedPodcasts);
+    } catch (error) {
+      console.error('Failed to fetch podcasts:', error);
+      setError(error instanceof Error ? error.message : 'Failed to fetch podcasts');
+    }
+  };
+
+  // Redirect to login if not authenticated or not an admin
+  useEffect(() => {
+    if (!isInitializing && (!isAuthenticated || !isAdmin)) {
+      router.push('/login');
+    }
+  }, [isAuthenticated, isInitializing, isAdmin, router]);
+
+  // Add podcast fetching effect right after the first effect for consistent hook ordering
+  useEffect(() => {
+    fetchPodcasts();
+  }, []);
+
+  // Show loading state while checking authentication
+  if (isInitializing) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-lg">Checking authentication...</div>
+      </div>
+    );
+  }
+
+  // Don't render anything if not authenticated or not admin
+  if (!isAuthenticated || !isAdmin) {
+    return null;
+  }
+
+  const handleGenerateSummary = async () => {
+    if (!title || !author) {
+      setError('Title and author are required');
+      return;
+    }
+
+    setIsGeneratingSummary(true);
+    setError(null);
+    setSummary(null);
+
+    try {
+      const response = await fetch('/api/books/perplexity-summary', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ title, author }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to generate summary');
+      }
+
+      const data: PerplexitySummary = await response.json();
+      setSummary(data.content);
+      setSuccessMessage('Samenvatting succesvol gegenereerd!');
+    } catch (error) {
+      console.error('Summary generation error:', error);
+      setError(error instanceof Error ? error.message : 'Failed to generate summary');
+    } finally {
+      setIsGeneratingSummary(false);
+    }
+  };
 
   const handleGenerateScript = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -112,46 +242,51 @@ export default function PodcastAdminPage() {
     setIsLoading(true);
 
     try {
-      if (!coverFile) {
-        throw new Error('Please select a cover image');
-      }
-
       if (!formRef.current) {
         throw new Error('Form not found');
+      }
+
+      if (!summary) {
+        throw new Error('Please generate a summary first');
       }
 
       const formData = new FormData(formRef.current);
       const bookTitle = formData.get('title') as string;
       const bookAuthor = formData.get('author') as string;
       
-      // First upload the cover image
-      const params = new URLSearchParams({
-        filename: coverFile.name,
-        type: 'cover'
-      });
-      const uploadUrlResponse = await fetch(`/api/get-upload-url?${params.toString()}`);
-      if (!uploadUrlResponse.ok) {
-        const error = await uploadUrlResponse.json();
-        throw new Error(error.error || 'Failed to get upload URL');
-      }
-      
-      const { url: uploadUrl, key: newCoverKey } = await uploadUrlResponse.json();
+      let newCoverKey = 'default-cover.jpg'; // Default cover image key
 
-      // Upload the cover file
-      await fetch(uploadUrl, {
-        method: 'PUT',
-        body: coverFile,
-        headers: {
-          'Content-Type': coverFile.type,
-        },
-      });
+      // Only handle cover image upload if a file is selected
+      if (coverFile) {
+        const params = new URLSearchParams({
+          filename: coverFile.name,
+          type: 'cover'
+        });
+        const uploadUrlResponse = await fetch(`/api/get-upload-url?${params.toString()}`);
+        if (!uploadUrlResponse.ok) {
+          const error = await uploadUrlResponse.json();
+          throw new Error(error.error || 'Failed to get upload URL');
+        }
+        
+        const { url: uploadUrl, key: coverKey } = await uploadUrlResponse.json();
+        newCoverKey = coverKey;
+
+        // Upload the cover file
+        await fetch(uploadUrl, {
+          method: 'PUT',
+          body: coverFile,
+          headers: {
+            'Content-Type': coverFile.type,
+          },
+        });
+      }
       
       const newBookData = {
         title: bookTitle,
         author: bookAuthor,
         libraryLink: formData.get('libraryLink') as string || undefined,
         description: (formData.get('description') as string || 'Generated by Claude').trim(),
-        reviews: reviews.filter(review => review.text.trim() !== '').map(review => review.text),
+        summary: editedSummary || summary,
         coverImage: newCoverKey,
       };
 
@@ -166,7 +301,7 @@ export default function PodcastAdminPage() {
           author: bookAuthor,
           libraryLink: newBookData.libraryLink,
           coverImage: newCoverKey,
-          reviews: newBookData.reviews,
+          reviews: [editedSummary || summary],
         }),
       });
 
@@ -269,404 +404,212 @@ export default function PodcastAdminPage() {
     }
   };
 
-  const handleSearchReviews = async () => {
-    if (!title.trim()) {
-      setError('Vul eerst een titel in');
-      return;
-    }
-    
-    setIsSearchingReviews(true);
-    setError(null);
-    setReviews([]);
-
-    try {
-      const response = await fetch('/api/books/reviews', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          title,
-          author
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch search results');
-      }
-
-      const data = await response.json() as SearchResponse;
-      
-      // Automatically fetch content for all search results
-      setIsFetchingReviews(true);
-      const contentResponse = await fetch('/api/books/fetch-content', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          urls: data.searchResults.map((r: SearchResult) => r.url),
-          title,
-          author
-        }),
-      });
-
-      if (!contentResponse.ok) {
-        throw new Error('Failed to fetch reviews');
-      }
-
-      const reviewsData = await contentResponse.json() as ReviewsData;
-      setReviews(reviewsData.reviews.map((review: ReviewResponse) => ({
-        text: review.content,
-        title: review.title,
-        sourceUrl: review.url,
-        quality: review.quality
-      })));
-      
-      setSuccessMessage('Recensies succesvol opgehaald!');
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to fetch reviews');
-    } finally {
-      setIsSearchingReviews(false);
-      setIsFetchingReviews(false);
-    }
-  };
-
-  const fetchPodcasts = async () => {
-    try {
-      // First fetch all books
-      const booksResponse = await fetch('/api/books', {
-        headers: {
-          'Cache-Control': 'no-cache',
-        }
-      });
-      
-      if (!booksResponse.ok) {
-        const errorData = await booksResponse.json().catch(() => ({}));
-        throw new Error(errorData.error || `HTTP error! status: ${booksResponse.status}`);
-      }
-      
-      const booksData = await booksResponse.json();
-      
-      if (!Array.isArray(booksData.books)) {
-        throw new Error('Invalid response format');
-      }
-
-      // Then fetch analytics data for play counts
-      const analyticsResponse = await fetch('/api/analytics/stats', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          event: 'audio_played',
-        }),
-      });
-
-      if (!analyticsResponse.ok) {
-        throw new Error('Failed to fetch analytics data');
-      }
-
-      const analyticsData = await analyticsResponse.json();
-      const playCountsByBook = analyticsData.stats || {};
-
-      const processedPodcasts = booksData.books.map((book) => ({
-        id: book.id,
-        title: book.title,
-        author: book.author,
-        audioLink: book.audioLink,
-        playCount: playCountsByBook[book.id] || 0,
-        positiveFeedback: Number(book.positiveFeedback) || 0,
-        negativeFeedback: Number(book.negativeFeedback) || 0
-      }));
-
-      console.log('Processed podcasts:', processedPodcasts);
-
-      setPodcasts(processedPodcasts);
-    } catch (error) {
-      console.error('Failed to fetch podcasts:', error);
-      setError(error instanceof Error ? error.message : 'Failed to fetch podcasts');
-    }
-  };
-
-  useEffect(() => {
-    fetchPodcasts();
-  }, []);
-
   const handlePodcastPlay = async (podcast: Podcast) => {
     setSelectedBook(null);
     setTimeout(() => setSelectedBook(podcast), 0);
   };
 
   return (
-    <div className="max-w-2xl mx-auto p-6 bg-background-DEFAULT rounded-lg shadow">
-      <h1 className="text-2xl font-semibold mb-6 text-primary">Nieuwe Podcast Creëren</h1>
-
-      {error && (
-        <div className="p-4 mb-6 rounded-md bg-error-light text-error border border-error/20">
-          {error}
-        </div>
-      )}
-
-      {successMessage && (
-        <div className="p-4 mb-6 rounded-md bg-primary-light text-primary border border-primary/20">
-          {successMessage}
-        </div>
-      )}
-
-      <form ref={formRef} onSubmit={handleGenerateScript} className="space-y-6">
-        <div>
-          <label htmlFor="title" className="block text-sm font-medium text-gray-900">
-            Titel
-          </label>
-          <input
-            type="text"
-            name="title"
-            id="title"
-            required
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 bg-white text-gray-900 px-4 py-3"
-            placeholder="Voer de titel in"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">Admin Dashboard</h1>
+          <p className="mt-2 text-sm text-gray-600">Manage your podcasts and book reviews</p>
         </div>
 
-        <div>
-          <label htmlFor="author" className="block text-sm font-medium text-gray-900">
-            Auteur
-          </label>
-          <input
-            type="text"
-            name="author"
-            id="author"
-            required
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 bg-white text-gray-900 px-4 py-3"
-            placeholder="Voer de auteur in"
-            value={author}
-            onChange={(e) => setAuthor(e.target.value)}
-          />
-        </div>
-
-        <FileUpload
-          accept="image/*"
-          label="Omslagafbeelding"
-          helpText="Upload een afbeelding voor de omslag"
-          onChange={setCoverFile}
-          value={coverFile}
-        />
-
-        <div>
-          <label htmlFor="libraryLink" className="block text-sm font-medium text-gray-900">
-            Bibliotheeklink (Optioneel)
-          </label>
-          <input
-            type="url"
-            name="libraryLink"
-            id="libraryLink"
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 bg-white text-gray-900 px-4 py-3"
-            placeholder="https://..."
-            value={libraryLink}
-            onChange={(e) => setLibraryLink(e.target.value)}
-          />
-        </div>
-
-        <div>
-          <label htmlFor="description" className="block text-sm font-medium text-gray-900">
-            Beschrijving (Optioneel)
-          </label>
-          <textarea
-            name="description"
-            id="description"
-            rows={3}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 bg-white text-gray-900 px-4 py-3"
-            placeholder="Voer een beschrijving in of laat leeg voor automatische generatie"
-          />
-        </div>
-
-        <div className="space-y-4">
-          <div className="flex justify-between items-center">
-            <label className="block text-sm font-medium text-gray-900">
-              Recensies
-            </label>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={handleSearchReviews}
-                disabled={isSearchingReviews || isFetchingReviews || !title.trim()}
-                className={`inline-flex items-center px-3 py-1 border border-transparent text-sm font-medium rounded-md text-white ${
-                  isSearchingReviews || isFetchingReviews || !title.trim()
-                    ? 'bg-indigo-400 cursor-not-allowed'
-                    : 'bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500'
-                }`}
-              >
-                {isSearchingReviews ? 'Zoeken...' : isFetchingReviews ? 'Recensies Ophalen...' : 'Zoek Recensies'}
-              </button>
-              <button
-                type="button"
-                onClick={() => setReviews([...reviews, { text: '' }])}
-                className="inline-flex items-center px-3 py-1 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-              >
-                Handmatig Toevoegen
-              </button>
-            </div>
-          </div>
-          
-          {reviews.map((review, index) => (
-            <div key={index} className="relative p-4 bg-background-paper rounded-lg border border-background-muted">
-              <div className="flex justify-between items-start mb-2">
-                <div className="flex-grow">
-                  {review.title && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* Left Column - Book Management */}
+          <div className="space-y-6">
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">Book Management</h2>
+              <form ref={formRef} className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-1">
+                      Title
+                    </label>
                     <input
                       type="text"
-                      value={review.title}
-                      onChange={(e) => {
-                        const newReviews = [...reviews];
-                        newReviews[index] = { ...newReviews[index], title: e.target.value };
-                        setReviews(newReviews);
-                      }}
-                      className="w-full font-medium text-primary bg-transparent border-none p-0 focus:ring-0"
-                      placeholder="Review titel"
+                      id="title"
+                      name="title"
+                      value={title}
+                      onChange={(e) => setTitle(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      required
                     />
-                  )}
-                  {review.quality !== undefined && (
-                    <div className="flex items-center gap-2 mt-1">
-                      <span className="text-xs text-gray-500">
-                        Kwaliteit: <span className={`font-medium ${review.quality >= 8 ? 'text-green-600' : review.quality >= 6 ? 'text-yellow-600' : 'text-red-600'}`}>{review.quality}/10</span>
-                      </span>
-                      {review.sourceUrl && (
-                        <a 
-                          href={review.sourceUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-xs text-primary-hover hover:underline"
-                        >
-                          Bekijk origineel
-                        </a>
-                      )}
-                    </div>
-                  )}
+                  </div>
+                  <div>
+                    <label htmlFor="author" className="block text-sm font-medium text-gray-700 mb-1">
+                      Author
+                    </label>
+                    <input
+                      type="text"
+                      id="author"
+                      name="author"
+                      value={author}
+                      onChange={(e) => setAuthor(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      required
+                    />
+                  </div>
                 </div>
+
+                <div>
+                  <label htmlFor="libraryLink" className="block text-sm font-medium text-gray-700 mb-1">
+                    Library Link
+                  </label>
+                  <input
+                    type="url"
+                    id="libraryLink"
+                    name="libraryLink"
+                    value={libraryLink}
+                    onChange={(e) => setLibraryLink(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Cover Image (Optional)
+                  </label>
+                  <FileUpload
+                    onChange={setCoverFile}
+                    accept="image/*"
+                    label="Upload Cover Image"
+                    helpText="PNG, JPG, GIF up to 10MB. If not provided, a default cover will be used."
+                  />
+                </div>
+
+                <div className="flex gap-4">
+                  <button
+                    type="button"
+                    onClick={handleGenerateSummary}
+                    disabled={isGeneratingSummary}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isGeneratingSummary ? 'Generating Summary...' : 'Generate Summary'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateScript(new Event('submit') as any)}
+                    disabled={isLoading || !summary}
+                    className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isLoading ? 'Generating Script...' : 'Generate Script'}
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {summary && (
+              <div className="bg-white rounded-xl shadow-sm p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Generated Summary</h3>
+                <textarea
+                  value={editedSummary || summary}
+                  onChange={(e) => setEditedSummary(e.target.value)}
+                  className="w-full h-48 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+            )}
+
+            {generatedScript && (
+              <div className="bg-white rounded-xl shadow-sm p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Generated Script</h3>
+                <textarea
+                  value={editedScript || generatedScript}
+                  onChange={(e) => setEditedScript(e.target.value)}
+                  className="w-full h-48 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                />
                 <button
-                  type="button"
-                  onClick={() => {
-                    const newReviews = reviews.filter((_, i) => i !== index);
-                    setReviews(newReviews.length ? newReviews : [{ text: '' }]);
-                  }}
-                  className="text-gray-400 hover:text-gray-600 ml-2"
+                  onClick={handleGenerateAudio}
+                  disabled={isGeneratingAudio}
+                  className="mt-4 w-full px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  {isGeneratingAudio ? 'Generating Audio...' : 'Generate Audio'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Right Column - Podcast List */}
+          <div className="space-y-6">
+            <div className="bg-white rounded-xl shadow-sm p-6">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">Podcast Library</h2>
+              <div className="space-y-4">
+                {podcasts.map((podcast) => (
+                  <div
+                    key={podcast.id}
+                    className="p-4 border border-gray-200 rounded-lg hover:border-blue-500 transition-colors"
+                  >
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="font-medium text-gray-900">{podcast.title}</h3>
+                        <p className="text-sm text-gray-500">{podcast.author}</p>
+                      </div>
+                      <button
+                        onClick={() => handlePodcastPlay(podcast)}
+                        className="p-2 text-blue-600 hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 rounded-full"
+                      >
+                        <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      </button>
+                    </div>
+                    <div className="mt-3">
+                      <FeedbackBar positive={podcast.positiveFeedback} negative={podcast.negativeFeedback} />
+                    </div>
+                    <div className="mt-2 text-sm text-gray-500">
+                      <span className="flex items-center gap-1">
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                        {podcast.playCount} plays
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {error && (
+          <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <p className="text-sm text-red-600">{error}</p>
+          </div>
+        )}
+
+        {successMessage && (
+          <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <p className="text-sm text-green-600">{successMessage}</p>
+          </div>
+        )}
+
+        {selectedBook && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-xl shadow-lg max-w-2xl w-full p-6">
+              <div className="flex justify-between items-start mb-4">
+                <h3 className="text-xl font-semibold text-gray-900">Now Playing</h3>
+                <button
+                  onClick={() => setSelectedBook(null)}
+                  className="text-gray-400 hover:text-gray-500"
+                >
+                  <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 </button>
               </div>
-              <textarea
-                value={review.text}
-                onChange={(e) => {
-                  const newReviews = [...reviews];
-                  newReviews[index] = { ...newReviews[index], text: e.target.value };
-                  setReviews(newReviews);
-                }}
-                rows={3}
-                className="w-full text-secondary bg-transparent border-none p-0 focus:ring-0 mt-2"
-                placeholder="Review tekst"
-              />
-            </div>
-          ))}
-        </div>
-
-        <button
-          type="submit"
-          disabled={isLoading}
-          className={`w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
-            isLoading
-              ? 'bg-primary/60 cursor-not-allowed'
-              : 'bg-primary hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary'
-          }`}
-        >
-          {isLoading ? 'Script Genereren...' : 'Podcast Genereren'}
-        </button>
-      </form>
-
-      {generatedScript && (
-        <div className="mt-8 space-y-6">
-          <div className="p-6 bg-primary-light rounded-lg border border-background-muted">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-medium text-primary">Beschrijving</h2>
-            </div>
-            <div className="prose max-w-none">
-              <textarea
-                value={(editedDescription !== null ? editedDescription : generatedDescription) || ''}
-                onChange={(e) => setEditedDescription(e.target.value)}
-                className="w-full h-32 font-mono text-sm text-primary p-4 rounded-md border border-background-muted focus:border-primary focus:ring-1 focus:ring-primary bg-background-paper"
-                placeholder="Boekbeschrijving..."
+              <AudioPlayer
+                bookKey={selectedBook.audioLink}
+                title={selectedBook.title}
+                bookId={selectedBook.id}
               />
             </div>
           </div>
-
-          <div className="p-6 bg-primary-light rounded-lg border border-background-muted">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-medium text-primary">Script</h2>
-              <button
-                onClick={handleGenerateAudio}
-                disabled={isGeneratingAudio}
-                className={`inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${
-                  isGeneratingAudio
-                    ? 'bg-primary/60 cursor-not-allowed'
-                    : 'bg-primary hover:bg-primary-hover focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary'
-                }`}
-              >
-                {isGeneratingAudio ? 'Audio Genereren...' : 'Genereer Audio'}
-              </button>
-            </div>
-            <div className="prose max-w-none">
-              <textarea
-                value={(editedScript !== null ? editedScript : generatedScript) || ''}
-                onChange={(e) => setEditedScript(e.target.value)}
-                className="w-full h-96 font-mono text-sm text-primary p-4 rounded-md border border-background-muted focus:border-primary focus:ring-1 focus:ring-primary bg-background-paper"
-                placeholder="Script text..."
-              />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {selectedBook && (
-        <div className="mb-8">
-          <AudioPlayer
-            bookKey={selectedBook.audioLink}
-            title={selectedBook.title}
-            bookId={selectedBook.id}
-          />
-        </div>
-      )}
-
-      {podcasts.length > 0 && (
-        <div className="mt-8">
-          <h2 className="text-xl font-semibold mb-4 text-primary">Bestaande Podcasts</h2>
-          <ul className="space-y-2">
-            {podcasts.map((podcast) => (
-              <li 
-                key={podcast.id} 
-                className="flex flex-col gap-2 p-4 hover:bg-primary-light rounded-lg cursor-pointer border border-background-muted bg-background-paper"
-                onClick={() => handlePodcastPlay(podcast)}
-              >
-                <div className="flex justify-between items-center">
-                  <span className="text-primary hover:text-primary-hover transition-colors">
-                    {podcast.title}
-                  </span>
-                  <span className="text-sm text-secondary">
-                    {podcast.playCount || 0} keer afgespeeld
-                  </span>
-                </div>
-                <FeedbackBar 
-                  positive={podcast.positiveFeedback || 0} 
-                  negative={podcast.negativeFeedback || 0} 
-                />
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
