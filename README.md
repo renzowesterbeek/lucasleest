@@ -22,6 +22,27 @@ npm run check:all
    - Clear build cache by clicking "Clear build cache"
    - Rebuild the application
 
+## IAM Service Role for AWS Amplify
+
+For deploying with AWS Amplify, you'll need to create a service role with appropriate permissions. An inline policy JSON file has been created in this repository (`amplify-service-role-policy.json`).
+
+### How to use the IAM policy:
+
+1. Go to the AWS IAM Console
+2. Create a new role (or use an existing one for Amplify)
+3. Choose "AWS service" as the trusted entity type
+4. Select "Amplify" as the service
+5. In the permissions section, choose "Create inline policy"
+6. In the JSON tab, paste the content from `amplify-service-role-policy.json`
+7. Name the policy (e.g., "LucasLeestServicePolicy") and create it
+8. Complete role creation and note the ARN for use in Amplify console
+
+This policy grants the necessary permissions for:
+- S3 bucket operations for audio files
+- DynamoDB table access
+- Cognito user management
+- CloudWatch logging
+
 ## Getting Started
 
 First, run the development server:

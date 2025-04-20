@@ -11,10 +11,18 @@ const cognitoClient = new CognitoIdentityProviderClient({
 
 export async function GET(request: Request) {
   try {
-    // Get the auth token from cookies
-    const token = request.headers.get('cookie')?.split(';')
+    // Try to get token from cookie first
+    let token = request.headers.get('cookie')?.split(';')
       .find(c => c.trim().startsWith('auth-token='))
       ?.split('=')[1];
+    
+    // If no token in cookie, check Authorization header
+    if (!token) {
+      const authHeader = request.headers.get('Authorization');
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        token = authHeader.substring(7);
+      }
+    }
     
     if (!token) {
       return NextResponse.json(

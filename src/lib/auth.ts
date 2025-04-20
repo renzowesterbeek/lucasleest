@@ -166,18 +166,17 @@ export const login = async ({ username, password }: LoginParams): Promise<AuthUs
           user.permissions = userData.user.permissions || [];
           user.email = userData.user.email || user.email;
         }
+      } else {
+        console.error('Failed to fetch user data:', await userResponse.text());
       }
     } catch (error) {
       console.error('Error fetching user data:', error);
     }
     
     return user;
-  } catch (error: unknown) {
+  } catch (error) {
     console.error('Login error:', error);
     const err = error as Error;
-    if (err.name === 'UserNotConfirmedException') {
-      throw new AuthError('USER_NOT_CONFIRMED', 'Please confirm your account before logging in');
-    }
     throw new AuthError('LOGIN_FAILED', err.message || 'Failed to login');
   }
 };

@@ -5,6 +5,8 @@ import { USER_GROUPS } from './config/cognito-config';
 
 export async function middleware(request: NextRequest) {
   console.log('Middleware check for:', request.nextUrl.pathname);
+  console.log('Request URL:', request.url);
+  console.log('Headers:', Object.fromEntries(request.headers.entries()));
 
   // Only protect /admin routes
   if (!request.nextUrl.pathname.startsWith('/admin')) {
@@ -24,42 +26,48 @@ export async function middleware(request: NextRequest) {
   }
 
   try {
-    // Verify the Cognito token by decoding and validating
+    // Decode and verify the token
     const decodedToken = jose.decodeJwt(token);
     
-    console.log('Token decoded, claims:', {
+    console.log('Token decoded successfully:', {
       iss: decodedToken.iss,
-      exp: decodedToken.exp, 
-      currentTime: Math.floor(Date.now() / 1000),
-      sub: decodedToken.sub,
-      'cognito:groups': decodedToken['cognito:groups'],
-      hasGroups: !!decodedToken['cognito:groups']
+      exp: decodedToken.exp,
+      hasUsername: !!decodedToken['cognito:username'] || !!decodedToken.sub
     });
     
-    // Check if it's a Cognito token by checking for the issuer
+    // Check if token is from Cognito
     if (!decodedToken.iss || !decodedToken.iss.includes('cognito-idp')) {
+      console.log('Invalid token issuer:', decodedToken.iss);
       throw new Error('Invalid token issuer');
     }
     
     // Check if token is expired
     const currentTime = Math.floor(Date.now() / 1000);
     if (decodedToken.exp && decodedToken.exp < currentTime) {
+      console.log('Token expired at:', new Date(decodedToken.exp * 1000).toISOString());
+      console.log('Current time:', new Date(currentTime * 1000).toISOString());
       throw new Error('Token expired');
     }
     
-    // Check if user is in admin group - the 'cognito:groups' claim contains user groups
-    const userGroups = decodedToken['cognito:groups'] as string[] || [];
-    console.log('User groups from token:', userGroups);
+    // Get user groups from token
+    const groups = decodedToken['cognito:groups'] as string[] || [];
+    console.log('User groups from token:', groups);
     
-    if (!userGroups.includes(USER_GROUPS.ADMIN)) {
-      throw new Error('Not authorized - user is not in admin group');
+    // Check if user is an admin
+    const isAdmin = groups.includes(USER_GROUPS.ADMIN);
+    
+    // If trying to access admin page but not an admin, redirect
+    if (request.nextUrl.pathname.startsWith('/admin') && !isAdmin) {
+      console.log('User is not an admin, redirecting to home');
+      return NextResponse.redirect(new URL('/', request.url));
     }
     
-    console.log('Cognito token verified successfully');
+    // Continue with the request
     return NextResponse.next();
   } catch (error) {
-    // If token is invalid, redirect to login
     console.error('Token verification failed:', error);
+    
+    // Redirect to login
     const loginUrl = new URL('/login', request.url);
     return NextResponse.redirect(loginUrl);
   }

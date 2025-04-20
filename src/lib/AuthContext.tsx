@@ -292,6 +292,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // After successful sign-in, try to fetch full user details
         try {
           // Call the API to get user details including groups
+          console.log('Fetching user details with token');
           const userResponse = await fetch('/api/auth/me', {
             headers: {
               Authorization: `Bearer ${response.AuthenticationResult.IdToken}`
@@ -300,6 +301,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           
           if (userResponse.ok) {
             const userData = await userResponse.json();
+            console.log('User data fetched successfully:', userData);
             if (userData.user) {
               const groups = userData.user.groups || [];
               const permissions = userData.user.permissions || [];
@@ -317,6 +319,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
                 localStorage.setItem('userGroups', JSON.stringify(groups));
               }
             }
+          } else {
+            const errorText = await userResponse.text();
+            console.error('Failed to fetch user data. Status:', userResponse.status, 'Response:', errorText);
           }
         } catch (e) {
           console.error('Error fetching user data:', e);
