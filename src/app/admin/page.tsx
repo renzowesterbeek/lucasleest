@@ -94,7 +94,7 @@ const FeedbackBar = ({ positive = 0, negative = 0 }: { positive: number; negativ
 
 export default function PodcastAdminPage() {
   const router = useRouter();
-  const { isAuthenticated, isInitializing, isAdmin } = useAuth();
+  const { isAuthenticated, isLoading: isAuthLoading, isAdmin } = useAuth();
   const formRef = useRef<HTMLFormElement>(null);
 
   // State management - MOVED ALL STATE HOOKS BEFORE CONDITIONAL RETURNS
@@ -178,10 +178,10 @@ export default function PodcastAdminPage() {
 
   // Redirect to login if not authenticated or not an admin
   useEffect(() => {
-    if (!isInitializing && (!isAuthenticated || !isAdmin)) {
+    if (!isAuthLoading && (!isAuthenticated || !isAdmin)) {
       router.push('/login');
     }
-  }, [isAuthenticated, isInitializing, isAdmin, router]);
+  }, [isAuthenticated, isAuthLoading, isAdmin, router]);
 
   // Add podcast fetching effect right after the first effect for consistent hook ordering
   useEffect(() => {
@@ -189,7 +189,7 @@ export default function PodcastAdminPage() {
   }, []);
 
   // Show loading state while checking authentication
-  if (isInitializing) {
+  if (isAuthLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-lg">Checking authentication...</div>

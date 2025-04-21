@@ -35,7 +35,7 @@ export function AuthStatus() {
       <p className="font-bold">Authenticated</p>
       <p>Username: {user?.username}</p>
       <p>Email: {user?.email}</p>
-      <p>Groups: {user?.groups.join(', ') || 'None'}</p>
+      <p>Groups: {user?.groups?.join(', ') || 'None'}</p>
       <p>Admin: {isAdmin ? 'Yes' : 'No'}</p>
     </div>
   );

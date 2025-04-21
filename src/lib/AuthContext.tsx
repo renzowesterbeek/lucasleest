@@ -30,7 +30,7 @@ interface User {
 // Define Auth Context interface
 interface AuthContextType {
   isAuthenticated: boolean;
-  isInitializing: boolean;
+  isLoading: boolean;
   user: User | null;
   login: (username: string, password: string) => Promise<unknown>;
   register: (username: string, password: string, email: string) => Promise<unknown>;
@@ -53,7 +53,7 @@ interface AuthProviderProps {
 // Auth Provider Component
 export function AuthProvider({ children }: AuthProviderProps) {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
-  const [isInitializing, setIsInitializing] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
   const [user, setUser] = useState<User | null>(null);
   const [isAmplifyConfigured, setIsAmplifyConfigured] = useState<boolean>(false);
   const [cognitoClient, setCognitoClient] = useState<CognitoIdentityProviderClient | null>(null);
@@ -71,10 +71,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Function to check current auth state (defined using useCallback to avoid dependency issues)
   const checkAuthState = useCallback(async () => {
     try {
-      setIsInitializing(true);
+      setIsLoading(true);
       
       if (configError) {
-        setIsInitializing(false);
+        setIsLoading(false);
         return;
       }
       
@@ -116,7 +116,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
               console.log('Error fetching additional user details:', e);
             }
             
-            setIsInitializing(false);
+            setIsLoading(false);
             return;
           } catch (e) {
             console.log('Error with stored tokens:', e);
@@ -151,7 +151,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setUser(null);
       setIsAuthenticated(false);
     } finally {
-      setIsInitializing(false);
+      setIsLoading(false);
     }
   }, [configError]);
 
@@ -160,7 +160,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     try {
       if (!userPoolId || !clientId) {
         setConfigError('AWS Cognito is not properly configured. Please check your environment variables.');
-        setIsInitializing(false);
+        setIsLoading(false);
         return;
       }
 
@@ -205,7 +205,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       throw new Error('Cognito client not initialized');
     }
     
-    setIsInitializing(true);
+    setIsLoading(true);
     setConfigError(null);
     
     try {
@@ -333,7 +333,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       console.error('Login error:', error);
       throw error;
     } finally {
-      setIsInitializing(false);
+      setIsLoading(false);
     }
   };
 
@@ -419,7 +419,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   // Logout function
   const logout = async () => {
-    setIsInitializing(true);
+    setIsLoading(true);
     
     try {
       // Clear localStorage tokens
@@ -442,7 +442,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       console.error('Logout error:', error);
       throw error;
     } finally {
-      setIsInitializing(false);
+      setIsLoading(false);
     }
   };
 
@@ -522,7 +522,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const contextValue: AuthContextType = {
     isAuthenticated,
-    isInitializing,
+    isLoading,
     user,
     login,
     register,

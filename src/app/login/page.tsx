@@ -19,7 +19,7 @@ export default function LoginPage() {
   const [error, setError] = useState<LoginError | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
-  const { login, isInitializing, configError } = useAuth();
+  const { login, isLoading: isAuthLoading, configError } = useAuth();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -111,28 +111,23 @@ export default function LoginPage() {
     }
   };
 
-  // Show configuration error if Cognito is not properly set up
+  // Show config error if present
   if (configError) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="max-w-md w-full p-8 bg-white rounded-lg shadow">
-          <div className="p-4 mb-4 bg-red-100 text-red-700 rounded-md">
-            <h2 className="text-lg font-semibold">Configuration Error</h2>
-            <p>{configError}</p>
-            <p className="mt-2 text-sm">Please check your environment variables and ensure AWS Cognito is properly configured.</p>
-          </div>
+      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+        <div className="max-w-md w-full bg-white p-8 rounded-lg shadow-md">
+          <h2 className="text-2xl font-bold text-center text-red-600 mb-4">Configuration Error</h2>
+          <p className="text-red-700 text-center">{configError}</p>
         </div>
       </div>
     );
   }
-
-  // Show loading state while initializing auth
-  if (isInitializing) {
+  
+  // If auth context is still initializing, show a loading state
+  if (isAuthLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="max-w-md w-full p-8 bg-white rounded-lg shadow text-center">
-          <p className="text-gray-500">Loading authentication...</p>
-        </div>
+      <div className="min-h-screen flex items-center justify-center bg-gray-100">
+        <div className="text-lg">Loading authentication context...</div>
       </div>
     );
   }
