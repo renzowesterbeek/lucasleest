@@ -86,6 +86,25 @@ export async function GET(request: Request) {
       });
     } catch (error) {
       console.error('Token verification failed:', error);
+      // Log details for debugging
+      try {
+        const decodedToken = jose.decodeJwt(token);
+        const currentTime = Math.floor(Date.now() / 1000);
+        console.error('Failed token details:', {
+          tokenIssuer: decodedToken.iss,
+          tokenExpiration: decodedToken.exp,
+          serverTime: currentTime,
+          usernameClaim: decodedToken['cognito:username'],
+          subClaim: decodedToken.sub,
+          errorType: error instanceof Error ? error.message : String(error)
+        });
+      } catch (decodeError) {
+        console.error('Failed to decode token during error logging:', decodeError);
+        // Also log the raw token (be careful if logging sensitive info in production)
+        // Consider logging only a portion or hash if needed
+        console.error('Problematic token (first 10 chars):', token.substring(0, 10)); 
+      }
+      
       return NextResponse.json(
         { error: 'Invalid token' },
         { status: 401 }
